@@ -1,0 +1,20 @@
+See LICENSE for copyright details.
+
+This implementation requires a mostly C++17 compliant compiler and has been
+tested with:
+	* g++ 13
+	* clang 18
+
+CMake & binaries are setup for unit testing. Define NDEBUG during Release-type
+builds to disable many asserts.
+
+To use sh::not_null requires:
+	* sh/pointer.hpp
+	* sh/not_null.hpp
+
+To use sh::never_null requires:
+	* sh/pointer.hpp
+	* sh/never_null.hpp
+
+
+I hope this is useful or at least interesting!
