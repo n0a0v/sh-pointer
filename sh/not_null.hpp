@@ -128,7 +128,8 @@ public:
 		noexcept(std::is_nothrow_constructible_v<pointer_type, U>)
 		: m_pointer{ other.get() }
 	{
-		SH_POINTER_ASSERT(m_pointer != nullptr);
+		SH_POINTER_ASSERT(m_pointer != nullptr,
+			"not_null constructor shouldn't have to handle nullptr never_null.");
 	}
 
 	/**	Assignment from a pointer with type convertible to pointer_type.
@@ -169,7 +170,8 @@ public:
 			// Assign only after null_error would have been thrown.
 			m_pointer = std::move(p);
 		}
-		SH_POINTER_ASSERT(m_pointer != nullptr);
+		SH_POINTER_ASSERT(m_pointer != nullptr,
+			"not_null assignment operator resulted in nullptr.");
 		return *this;
 	}
 	/**	Assignment from a non_null wrapped pointer with type convertible to pointer_type.
@@ -231,7 +233,8 @@ public:
 		noexcept(std::is_nothrow_assignable_v<pointer_type&, U>)
 	{
 		m_pointer = other.get();
-		SH_POINTER_ASSERT(m_pointer != nullptr);
+		SH_POINTER_ASSERT(m_pointer != nullptr,
+			"not_null assignment operator doesn't handle nullptr never_null.");
 		return *this;
 	}
 

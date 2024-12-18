@@ -101,7 +101,8 @@ public:
 		noexcept(std::is_nothrow_constructible_v<pointer_type, U>)
 		: m_pointer{ other.get() }
 	{
-		SH_POINTER_ASSERT(m_pointer != nullptr);
+		SH_POINTER_ASSERT(m_pointer != nullptr,
+			"never_null copy constructor doesn't expect incoming nullptr.");
 	}
 
 	/**	Assignment from a pointer with type convertible to pointer_type.
@@ -142,7 +143,8 @@ public:
 			// Assign only after null_error would have been thrown.
 			m_pointer = std::move(p);
 		}
-		SH_POINTER_ASSERT(m_pointer != nullptr);
+		SH_POINTER_ASSERT(m_pointer != nullptr,
+			"never_null assignment operator resulted in nullptr.");
 		return *this;
 	}
 	/**	Assignment from a never_null wrapped pointer with type convertible to pointer_type.
@@ -171,7 +173,8 @@ public:
 	 */
 	[[nodiscard]] constexpr const pointer_type& get() const noexcept
 	{
-		SH_POINTER_ASSERT(m_pointer != nullptr);
+		SH_POINTER_ASSERT(m_pointer != nullptr,
+			"never_null::get should never return nullptr.");
 		return m_pointer;
 	}
 	/**	Return the result of dereferencing the contained pointer.
@@ -180,7 +183,8 @@ public:
 	[[nodiscard]] constexpr decltype(auto) operator*() const
 		noexcept(noexcept(*std::declval<const pointer_type&>()))
 	{
-		SH_POINTER_ASSERT(m_pointer != nullptr);
+		SH_POINTER_ASSERT(m_pointer != nullptr,
+			"never_null::operator* should never dereference nullptr.");
 		return *m_pointer;
 	}
 	/**	Return a reference to the contained pointer.
@@ -188,7 +192,8 @@ public:
 	 */
 	constexpr const pointer_type& operator->() const noexcept
 	{
-		SH_POINTER_ASSERT(m_pointer != nullptr);
+		SH_POINTER_ASSERT(m_pointer != nullptr,
+			"never_null::operator-> should never return nullptr.");
 		return m_pointer;
 	}
 	/**	Return a reference to the contained pointer.
@@ -203,7 +208,8 @@ public:
 	 */
 	constexpr explicit operator bool() const noexcept
 	{
-		SH_POINTER_ASSERT(m_pointer != nullptr);
+		SH_POINTER_ASSERT(m_pointer != nullptr,
+			"never_null::operator bool should never have to handle nullptr.");
 		return true;
 	}
 	/**	Swap pointer values between \p this and another never_null \p other.
@@ -273,73 +279,85 @@ constexpr bool operator>=(const never_null<L>& lhs, const never_null<R>& rhs)
 template <typename U>
 constexpr bool operator==(const never_null<U>& lhs, std::nullptr_t) noexcept
 {
-	SH_POINTER_ASSERT(lhs.get() != nullptr);
+	SH_POINTER_ASSERT(lhs.get() != nullptr,
+		"operator== shouldn't receive nullptr never_null.");
 	return false;
 }
 template <typename U>
 constexpr bool operator==(std::nullptr_t, const never_null<U>& rhs) noexcept
 {
-	SH_POINTER_ASSERT(rhs.get() != nullptr);
+	SH_POINTER_ASSERT(rhs.get() != nullptr,
+		"operator== shouldn't receive nullptr never_null.");
 	return false;
 }
 template <typename U>
 constexpr bool operator!=(const never_null<U>& lhs, std::nullptr_t) noexcept
 {
-	SH_POINTER_ASSERT(lhs.get() != nullptr);
+	SH_POINTER_ASSERT(lhs.get() != nullptr,
+		"operator!= shouldn't receive nullptr never_null.");
 	return true;
 }
 template <typename U>
 constexpr bool operator!=(std::nullptr_t, const never_null<U>& rhs) noexcept
 {
-	SH_POINTER_ASSERT(rhs.get() != nullptr);
+	SH_POINTER_ASSERT(rhs.get() != nullptr,
+		"operator!= shouldn't receive nullptr never_null.");
 	return true;
 }
 template <typename U>
 constexpr bool operator<(const never_null<U>& lhs, std::nullptr_t) noexcept
 {
-	SH_POINTER_ASSERT(lhs.get() != nullptr);
+	SH_POINTER_ASSERT(lhs.get() != nullptr,
+		"operator< shouldn't receive nullptr never_null.");
 	return false;
 }
 template <typename U>
 constexpr bool operator<(std::nullptr_t, const never_null<U>& rhs) noexcept
 {
-	SH_POINTER_ASSERT(rhs.get() != nullptr);
+	SH_POINTER_ASSERT(rhs.get() != nullptr,
+		"operator< shouldn't receive nullptr never_null.");
 	return true;
 }
 template <typename U>
 constexpr bool operator<=(const never_null<U>& lhs, std::nullptr_t) noexcept
 {
-	SH_POINTER_ASSERT(lhs.get() != nullptr);
+	SH_POINTER_ASSERT(lhs.get() != nullptr,
+		"operator<= shouldn't receive nullptr never_null.");
 	return false;
 }
 template <typename U>
 constexpr bool operator<=(std::nullptr_t, const never_null<U>& rhs) noexcept
 {
-	SH_POINTER_ASSERT(rhs.get() != nullptr);
+	SH_POINTER_ASSERT(rhs.get() != nullptr,
+		"operator<= shouldn't receive nullptr never_null.");
 	return true;
 }
 template <typename U>
 constexpr bool operator>(const never_null<U>& lhs, std::nullptr_t) noexcept
 {
-	SH_POINTER_ASSERT(lhs.get() != nullptr);
+	SH_POINTER_ASSERT(lhs.get() != nullptr,
+		"operator> shouldn't receive nullptr never_null.");
 	return true;
 }
 template <typename U>
 constexpr bool operator>(std::nullptr_t, const never_null<U>& rhs) noexcept
 {
-	SH_POINTER_ASSERT(rhs.get() != nullptr);
+	SH_POINTER_ASSERT(rhs.get() != nullptr,
+		"operator> shouldn't receive nullptr never_null.");
 	return false;
 }
 template <typename U>
 constexpr bool operator>=(const never_null<U>& lhs, std::nullptr_t) noexcept
 {
-	SH_POINTER_ASSERT(lhs.get() != nullptr);
+	SH_POINTER_ASSERT(lhs.get() != nullptr,
+		"operator>= shouldn't receive nullptr never_null.");
 	return true;
 }
 template <typename U>
 constexpr bool operator>=(std::nullptr_t, const never_null<U>& rhs) noexcept
 {
-	SH_POINTER_ASSERT(rhs.get() != nullptr);
+	SH_POINTER_ASSERT(rhs.get() != nullptr,
+		"operator>= shouldn't receive nullptr never_null.");
 	return false;
 }
 
