@@ -41,12 +41,14 @@ namespace
 {
 	struct Base
 	{
+		virtual ~Base() = default;
 	};
 	struct Derived final : Base
 	{
 		explicit Derived(const int value)
 			: m_value{ value }
 		{ }
+		~Derived() override = default;
 
 		int m_value;
 	};
