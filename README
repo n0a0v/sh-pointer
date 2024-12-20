@@ -1,8 +1,9 @@
 See LICENSE for copyright details.
 
-This implementation requires a mostly C++17 compliant compiler and has been
+Parts of this implementation require a C++20 compliant compiler and have been
 tested with:
 	* g++ 13
+	* g++ 14
 	* clang 18
 
 CMake & binaries are setup for unit testing. Define NDEBUG during Release-type
@@ -16,5 +17,11 @@ To use sh::never_null requires:
 	* sh/pointer.hpp
 	* sh/never_null.hpp
 
+To use sh::shared_ptr and sh::weak_ptr requires:
+	* sh/pointer_traits.hpp
+	* sh/pointer.hpp
+	* sh/shared_ptr.hpp
+Adding the wide varieties sh::wide_shared_ptr and sh::wide_weak_ptr:
+	* sh/wide_shared_ptr.hpp
 
 I hope this is useful or at least interesting!
