@@ -47,6 +47,7 @@ using sh::reinterpret_pointer_cast;
 using sh::shared_ptr;
 using sh::static_pointer_cast;
 using sh::weak_ptr;
+using sh::is_static_cast_inert_v;
 
 namespace
 {
@@ -57,6 +58,7 @@ namespace
 		std::size_t m_allocate_calls{ 0 };
 		std::size_t m_deallocate_calls{ 0 };
 		std::size_t m_construct_calls{ 0 };
+		std::size_t m_construct_default{ 0 };
 		std::size_t m_destroy_calls{ 0 };
 
 		friend std::ostream& operator<<(std::ostream& ostr, const allocations& all)
@@ -66,6 +68,7 @@ namespace
 				", allocate calls " << all.m_allocate_calls <<
 				", deallocate calls " << all.m_deallocate_calls <<
 				", construct calls " << all.m_construct_calls <<
+				", construct default " << all.m_construct_default <<
 				", destroy calls " << all.m_destroy_calls;
 		}
 	};
@@ -133,20 +136,14 @@ namespace
 		void construct(U* const p, Args&&... args)
 		{
 			allocator_traits::construct(*this, p, std::forward<Args>(args)...);
-			if constexpr (std::is_trivially_destructible_v<U> == false)
-			{
-				general_allocations::get().m_construct_calls += 1;
-				typed_allocations<T>::get().m_construct_calls += 1;
-			}
+			general_allocations::get().m_construct_calls += 1;
+			typed_allocations<T>::get().m_construct_calls += 1;
 		}
 		template <typename U>
 		void destroy(U* const p)
 		{
-			if constexpr (std::is_trivially_destructible_v<U> == false)
-			{
-				general_allocations::get().m_destroy_calls += 1;
-				typed_allocations<T>::get().m_destroy_calls += 1;
-			}
+			general_allocations::get().m_destroy_calls += 1;
+			typed_allocations<T>::get().m_destroy_calls += 1;
 			allocator_traits::destroy(*this, p);
 		}
 	};
@@ -208,7 +205,7 @@ namespace
 			using other = stateful_allocator<U, typename Allocator::template rebind<U>::other>;
 		};
 
-		explicit stateful_allocator(const int state) noexcept
+		explicit stateful_allocator(const int state = 123) noexcept
 			: m_state{ state }
 		{ }
 		stateful_allocator(const stateful_allocator& other) = default;
@@ -225,7 +222,7 @@ namespace
 			: m_state{ other.m_state }
 		{ }
 
-		int m_state{ 123 };
+		int m_state;
 	};
 
 	namespace SingleInheritance
@@ -322,8 +319,8 @@ namespace
 
 	struct throws_on_counter : public extended_alignment
 	{
-		static int current_counter;
 		static int throw_counter;
+		static int current_counter;
 
 		throws_on_counter()
 			: extended_alignment{ current_counter++ }
@@ -335,8 +332,8 @@ namespace
 		}
 	};
 
-	int throws_on_counter::current_counter = 0;
 	int throws_on_counter::throw_counter = -1;
+	int throws_on_counter::current_counter = 0;
 
 	class sh_wide_shared_ptr : public ::testing::Test
 	{
@@ -348,19 +345,18 @@ namespace
 			ASSERT_EQ(0u, general_allocations::get().m_allocate_calls);
 			ASSERT_EQ(0u, general_allocations::get().m_deallocate_calls);
 			ASSERT_EQ(0u, general_allocations::get().m_construct_calls);
+			ASSERT_EQ(0u, general_allocations::get().m_construct_default);
 			ASSERT_EQ(0u, general_allocations::get().m_destroy_calls);
 
-			throws_on_counter::current_counter = 0;
 			throws_on_counter::throw_counter = -1;
+			throws_on_counter::current_counter = 0;
 		}
 		void TearDown() override
 		{
-			EXPECT_EQ(0u, general_allocations::get().m_current)
-				<< general_allocations::get();
-			EXPECT_EQ(general_allocations::get().m_allocate_calls, general_allocations::get().m_deallocate_calls)
-				<< general_allocations::get();
-			EXPECT_EQ(general_allocations::get().m_construct_calls, general_allocations::get().m_destroy_calls)
-				<< general_allocations::get();
+			const auto& gen = general_allocations::get();
+			EXPECT_EQ(0u, gen.m_current) << gen;
+			EXPECT_EQ(gen.m_allocate_calls, gen.m_deallocate_calls) << gen;
+			EXPECT_EQ(gen.m_construct_calls + gen.m_construct_default, gen.m_destroy_calls) << gen;
 		}
 	};
 
@@ -1188,7 +1184,7 @@ TEST_F(sh_wide_shared_ptr, wide_weak_assign_copy_weak_ptr_implicit)
 	}
 	{
 		using namespace VirtualInheritance;
-		static_assert(false == sh::pointer::is_static_cast_inert_v<Base*, Derived*>);
+		static_assert(false == is_static_cast_inert_v<Base*, Derived*>);
 		{
 			wide_shared_ptr<Derived> x{ make_shared<Derived>() };
 			wide_weak_ptr<Derived> y{ x };
@@ -1234,7 +1230,7 @@ TEST_F(sh_wide_shared_ptr, wide_weak_assign_move_implicit)
 	}
 	{
 		using namespace VirtualInheritance;
-		static_assert(false == sh::pointer::is_static_cast_inert_v<Base*, Derived*>);
+		static_assert(false == is_static_cast_inert_v<Base*, Derived*>);
 		{
 			wide_shared_ptr<Derived> x{ make_shared<Derived>() };
 			wide_weak_ptr<Derived> y{ x };
@@ -1429,20 +1425,41 @@ TEST_F(sh_wide_shared_ptr, wide_weak_owner_before)
 	EXPECT_EQ(zo.owner_before(wo), x.owner_before(wo));
 }
 
+TEST_F(sh_wide_shared_ptr, make_shared)
+{
+	make_shared<extended_alignment>();
+	make_shared<extended_alignment>(123);
+}
 TEST_F(sh_wide_shared_ptr, make_shared_throw)
 {
 	throws_on_counter::throw_counter = 0;
 	EXPECT_THROW(make_shared<throws_on_counter>(), configurable_exception);
+}
+TEST_F(sh_wide_shared_ptr, make_shared_for_overwrite)
+{
+	make_shared_for_overwrite<extended_alignment>();
 }
 TEST_F(sh_wide_shared_ptr, make_shared_for_overwrite_throw)
 {
 	throws_on_counter::throw_counter = 0;
 	EXPECT_THROW(make_shared_for_overwrite<throws_on_counter>(), configurable_exception);
 }
+TEST_F(sh_wide_shared_ptr, make_shared_array)
+{
+	make_shared<extended_alignment[]>(2);
+	make_shared<extended_alignment[]>(2, extended_alignment{ 123 });
+	make_shared<extended_alignment[2]>();
+	make_shared<extended_alignment[2]>(extended_alignment{ 123 });
+}
 TEST_F(sh_wide_shared_ptr, make_shared_array_throw)
 {
 	throws_on_counter::throw_counter = 1;
 	EXPECT_THROW(make_shared<throws_on_counter[]>(3), configurable_exception);
+}
+TEST_F(sh_wide_shared_ptr, make_shared_for_overwrite_array)
+{
+	make_shared_for_overwrite<extended_alignment[]>(3);
+	make_shared_for_overwrite<extended_alignment[3]>();
 }
 TEST_F(sh_wide_shared_ptr, make_shared_for_overwrite_array_throw)
 {
@@ -1494,28 +1511,20 @@ TEST_F(sh_wide_shared_ptr, allocate_shared)
 		EXPECT_EQ(nullptr, y.lock().get());
 		EXPECT_EQ(0u, y.use_count());
 	}
-}
-TEST_F(sh_wide_shared_ptr, allocate_shared_extended_alignment)
-{
-	counted_allocator<extended_alignment> alloc;
-	wide_shared_ptr<extended_alignment> x{ sh::allocate_shared<extended_alignment>(alloc) };
-	EXPECT_TRUE(bool(x));
-	EXPECT_NE(nullptr, x.get());
-	EXPECT_EQ(1u, x.use_count());
-
-	x.reset();
-	x = sh::allocate_shared<extended_alignment>(alloc);
-	EXPECT_TRUE(bool(x));
-	EXPECT_NE(nullptr, x.get());
-	EXPECT_EQ(1u, x.use_count());
-
-	wide_weak_ptr<extended_alignment> y{ x };
-	EXPECT_EQ(x.get(), y.lock().get());
-	EXPECT_EQ(1u, y.use_count());
-
-	x.reset();
-	EXPECT_EQ(nullptr, y.lock().get());
-	EXPECT_EQ(0u, y.use_count());
+	{
+		counted_allocator<extended_alignment> alloc;
+		wide_shared_ptr<extended_alignment> x{ sh::allocate_shared<extended_alignment>(alloc) };
+		EXPECT_TRUE(bool(x));
+		EXPECT_NE(nullptr, x.get());
+		EXPECT_EQ(1u, x.use_count());
+	}
+	{
+		stateful_allocator<extended_alignment> alloc{ 123 };
+		wide_shared_ptr<extended_alignment> x{ sh::allocate_shared<extended_alignment>(alloc) };
+		EXPECT_TRUE(bool(x));
+		EXPECT_NE(nullptr, x.get());
+		EXPECT_EQ(1u, x.use_count());
+	}
 }
 TEST_F(sh_wide_shared_ptr, allocate_shared_array)
 {
@@ -1526,70 +1535,62 @@ TEST_F(sh_wide_shared_ptr, allocate_shared_array)
 		EXPECT_TRUE(bool(x));
 		EXPECT_NE(nullptr, x.get());
 		EXPECT_EQ(1u, x.use_count());
-
-		x.reset();
-		x = sh::allocate_shared<Derived[]>(alloc, 3);
+	}
+	{
+		counted_allocator<Derived> alloc;
+		wide_shared_ptr<Derived[]> x{ sh::allocate_shared<Derived[2]>(alloc) };
 		EXPECT_TRUE(bool(x));
 		EXPECT_NE(nullptr, x.get());
 		EXPECT_EQ(1u, x.use_count());
-
-		wide_weak_ptr<Derived[]> y{ x };
-		EXPECT_EQ(x.get(), y.lock().get());
-		EXPECT_EQ(1u, y.use_count());
-
-		x.reset();
-		EXPECT_EQ(nullptr, y.lock().get());
-		EXPECT_EQ(0u, y.use_count());
 	}
 	{
-		stateful_allocator<Derived> alloc{ 123 };
+		counted_allocator<Derived> alloc;
+		wide_shared_ptr<Derived[2]> x{ sh::allocate_shared<Derived[2]>(alloc) };
+		EXPECT_TRUE(bool(x));
+		EXPECT_NE(nullptr, x.get());
+		EXPECT_EQ(1u, x.use_count());
+	}
+	{
+		constexpr extended_alignment value{ 123 };
+		counted_allocator<extended_alignment> alloc;
+		wide_shared_ptr<extended_alignment[]> x{ sh::allocate_shared<extended_alignment[]>(alloc, 2, value) };
+		EXPECT_TRUE(bool(x));
+		EXPECT_NE(nullptr, x.get());
+		EXPECT_EQ(1u, x.use_count());
+		EXPECT_EQ(x[0].m_value, value.m_value);
+		EXPECT_EQ(x[1].m_value, value.m_value);
+	}
+	{
+		constexpr extended_alignment value{ 123 };
+		counted_allocator<extended_alignment> alloc;
+		wide_shared_ptr<extended_alignment[2]> x{ sh::allocate_shared<extended_alignment[2]>(alloc, value) };
+		EXPECT_TRUE(bool(x));
+		EXPECT_NE(nullptr, x.get());
+		EXPECT_EQ(1u, x.use_count());
+		EXPECT_EQ(x[0].m_value, value.m_value);
+		EXPECT_EQ(x[1].m_value, value.m_value);
+	}
+	{
+		stateful_allocator<Derived> alloc;
 		wide_shared_ptr<Derived[]> x{ sh::allocate_shared<Derived[]>(alloc, 2u) };
 		EXPECT_TRUE(bool(x));
 		EXPECT_NE(nullptr, x.get());
 		EXPECT_EQ(1u, x.use_count());
-
-		x.reset();
-		x = sh::allocate_shared<Derived[]>(alloc, 3);
+	}
+	{
+		counted_allocator<extended_alignment[2]> alloc;
+		wide_shared_ptr<extended_alignment[2][2]> x{ sh::allocate_shared<extended_alignment[2][2]>(alloc) };
 		EXPECT_TRUE(bool(x));
 		EXPECT_NE(nullptr, x.get());
 		EXPECT_EQ(1u, x.use_count());
-
-		wide_weak_ptr<Derived[]> y{ x };
-		EXPECT_EQ(x.get(), y.lock().get());
-		EXPECT_EQ(1u, y.use_count());
-
-		x.reset();
-		EXPECT_EQ(nullptr, y.lock().get());
-		EXPECT_EQ(0u, y.use_count());
 	}
-}
-TEST_F(sh_wide_shared_ptr, allocate_shared_array_extended_alignment)
-{
-	counted_allocator<extended_alignment[]> alloc;
-	wide_shared_ptr<extended_alignment[]> x{ sh::allocate_shared<extended_alignment[]>(alloc, 3) };
-	EXPECT_TRUE(bool(x));
-	EXPECT_NE(nullptr, x.get());
-	EXPECT_EQ(1u, x.use_count());
-
-	x.reset();
-	x = sh::allocate_shared<extended_alignment[]>(alloc, 3);
-	EXPECT_TRUE(bool(x));
-	EXPECT_NE(nullptr, x.get());
-	EXPECT_EQ(1u, x.use_count());
-
-	wide_weak_ptr<extended_alignment[]> y{ x };
-	EXPECT_EQ(x.get(), y.lock().get());
-	EXPECT_EQ(1u, y.use_count());
-
-	x.reset();
-	EXPECT_EQ(nullptr, y.lock().get());
-	EXPECT_EQ(0u, y.use_count());
 }
 TEST_F(sh_wide_shared_ptr, allocate_shared_for_overwrite)
 {
 	constexpr char prefill = '\xff';
 	prefill_allocator<char, prefill> alloc;
 	wide_shared_ptr<char> x{ sh::allocate_shared_for_overwrite<char>(alloc) };
+	general_allocations::get().m_construct_default += 1;
 	ASSERT_TRUE(bool(x));
 	EXPECT_EQ(prefill, *x);
 
@@ -1598,6 +1599,7 @@ TEST_F(sh_wide_shared_ptr, allocate_shared_for_overwrite)
 
 	x.reset();
 	x = sh::allocate_shared_for_overwrite<char>(alloc);
+	general_allocations::get().m_construct_default += 1;
 	ASSERT_TRUE(bool(x));
 	EXPECT_EQ(prefill, *x);
 
@@ -1617,6 +1619,7 @@ TEST_F(sh_wide_shared_ptr, allocate_shared_for_overwrite_extended_alignment)
 	constexpr char prefill = '\xff';
 	prefill_allocator<char, prefill> alloc;
 	wide_shared_ptr<extended_alignment> x{ sh::allocate_shared_for_overwrite<extended_alignment>(alloc) };
+	general_allocations::get().m_construct_default += 1;
 	ASSERT_TRUE(bool(x));
 	EXPECT_EQ(prefill, x->m_value);
 
@@ -1625,6 +1628,7 @@ TEST_F(sh_wide_shared_ptr, allocate_shared_for_overwrite_extended_alignment)
 
 	x.reset();
 	x = sh::allocate_shared_for_overwrite<extended_alignment>(alloc);
+	general_allocations::get().m_construct_default += 1;
 	ASSERT_TRUE(bool(x));
 	EXPECT_EQ(prefill, x->m_value);
 
@@ -1644,6 +1648,7 @@ TEST_F(sh_wide_shared_ptr, allocate_shared_for_overwrite_array)
 	constexpr char prefill = '\xff';
 	prefill_allocator<char, prefill> alloc;
 	wide_shared_ptr<char[]> x{ sh::allocate_shared_for_overwrite<char[]>(alloc, 4) };
+	general_allocations::get().m_construct_default += 4;
 	ASSERT_TRUE(bool(x));
 	EXPECT_EQ(prefill, x[0]);
 	EXPECT_EQ(prefill, x[1]);
@@ -1654,7 +1659,8 @@ TEST_F(sh_wide_shared_ptr, allocate_shared_for_overwrite_array)
 	EXPECT_EQ(1u, x.use_count());
 
 	x.reset();
-	x = sh::allocate_shared_for_overwrite<char[]>(alloc, 4);
+	x = sh::allocate_shared_for_overwrite<char[4]>(alloc);
+	general_allocations::get().m_construct_default += 4;
 	ASSERT_TRUE(bool(x));
 	EXPECT_EQ(prefill, x[0]);
 	EXPECT_EQ(prefill, x[1]);
@@ -1677,6 +1683,7 @@ TEST_F(sh_wide_shared_ptr, allocate_shared_for_overwrite_array_extended_alignmen
 	constexpr char prefill = '\xff';
 	prefill_allocator<char, prefill> alloc;
 	wide_shared_ptr<extended_alignment[]> x{ sh::allocate_shared_for_overwrite<extended_alignment[]>(alloc, 4) };
+	general_allocations::get().m_construct_default += 4;
 	ASSERT_TRUE(bool(x));
 	EXPECT_EQ(prefill, x[0].m_value);
 	EXPECT_EQ(prefill, x[1].m_value);
@@ -1687,7 +1694,8 @@ TEST_F(sh_wide_shared_ptr, allocate_shared_for_overwrite_array_extended_alignmen
 	EXPECT_EQ(1u, x.use_count());
 
 	x.reset();
-	x = sh::allocate_shared_for_overwrite<extended_alignment[]>(alloc, 4);
+	x = sh::allocate_shared_for_overwrite<extended_alignment[4]>(alloc);
+	general_allocations::get().m_construct_default += 4;
 	ASSERT_TRUE(bool(x));
 	EXPECT_EQ(prefill, x[0].m_value);
 	EXPECT_EQ(prefill, x[1].m_value);

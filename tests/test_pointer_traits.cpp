@@ -33,9 +33,9 @@
 
 #include <sh/pointer_traits.hpp>
 
-using sh::pointer::is_pointer_interconvertible_v;
+using sh::is_pointer_interconvertible_v;
+using sh::is_virtual_base_of_v;
 using sh::pointer::is_pointer_interconvertible_with_class;
-using sh::pointer::is_virtual_base_of_v;
 
 namespace
 {
@@ -167,9 +167,16 @@ TEST(sh_pointer_traits, is_pointer_interconvertible_array_pointer)
 {
 	static_assert(is_pointer_interconvertible_v<int, int>);
 	static_assert(is_pointer_interconvertible_v<int[10], int[10]>);
+	static_assert(is_pointer_interconvertible_v<int[10], int[]>);
 	static_assert(is_pointer_interconvertible_v<int, const int>);
-	static_assert(is_pointer_interconvertible_v<const int, int>);
+	static_assert(is_pointer_interconvertible_v<int[10], const int[10]>);
+	static_assert(is_pointer_interconvertible_v<int[10], const int[]>);
 	static_assert(is_pointer_interconvertible_v<const int, const int>);
+	static_assert(is_pointer_interconvertible_v<const int[10], const int[10]>);
+	static_assert(is_pointer_interconvertible_v<const int[10], const int[]>);
+	// Won't cast away constness:
+	static_assert(is_pointer_interconvertible_v<const int, int> == false);
+	static_assert(is_pointer_interconvertible_v<const int[10], int[10]> == false);
 	// Rank must match:
 	static_assert(false == is_pointer_interconvertible_v<int[4], int>);
 	static_assert(false == is_pointer_interconvertible_v<int, int[4]>);
@@ -198,6 +205,8 @@ TEST(sh_pointer_traits, is_pointer_interconvertible_simple_inheritance)
 		reinterpret_cast<std::uintptr_t>(static_cast<void*>(d2)),
 		reinterpret_cast<std::uintptr_t>(static_cast<void*>(b))
 	);
+	static_assert(is_pointer_interconvertible_v<Derived[], Derived[]>);
+	static_assert(is_pointer_interconvertible_v<Base[], Base[]>);
 }
 TEST(sh_pointer_traits, is_pointer_interconvertible_single_inheritance)
 {
@@ -218,6 +227,9 @@ TEST(sh_pointer_traits, is_pointer_interconvertible_single_inheritance)
 		reinterpret_cast<std::uintptr_t>(static_cast<void*>(d2)),
 		reinterpret_cast<std::uintptr_t>(static_cast<void*>(b))
 	);
+	static_assert(is_pointer_interconvertible_v<Derived[], Derived[]>);
+	static_assert(is_pointer_interconvertible_v<Base[], Base[]>);
+	static_assert(is_pointer_interconvertible_v<Derived[], Base[]> == false);
 }
 TEST(sh_pointer_traits, is_pointer_interconvertible_multiple_inheritance)
 {
@@ -238,7 +250,12 @@ TEST(sh_pointer_traits, is_pointer_interconvertible_multiple_inheritance)
 		reinterpret_cast<std::uintptr_t>(static_cast<void*>(d2)),
 		reinterpret_cast<std::uintptr_t>(static_cast<void*>(b))
 	);
+	static_assert(is_pointer_interconvertible_v<Base1[], Base1[]>);
+	static_assert(is_pointer_interconvertible_v<Base2[], Base2[]>);
+	static_assert(is_pointer_interconvertible_v<Derived[], Derived[]>);
 	static_assert(is_pointer_interconvertible_v<Derived, Base2> == false);
+	static_assert(is_pointer_interconvertible_v<Derived[], Base1[]> == false);
+	static_assert(is_pointer_interconvertible_v<Derived[], Base2[]> == false);
 }
 TEST(sh_pointer_traits, is_pointer_interconvertible_with_class)
 {

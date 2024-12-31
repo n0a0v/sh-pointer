@@ -59,6 +59,42 @@
 
 namespace sh::pointer
 {
+	/**	Check if a pointer-to-member resides at the same address as its objects:
+	 *	@tparam S The object (e.g., struct or class) type.
+	 *	@tparam M The type of the pointed-to member.
+	 *	@param mem_ptr The pointer-to-member to inspect.
+	 *	@return True if the pointer-to-member is interconvertible with its owning object.
+	 */
+	template <typename S, typename M>
+	constexpr bool is_pointer_interconvertible_with_class(M S::* const mem_ptr) noexcept
+	{
+		if constexpr (std::is_standard_layout_v<M> == false)
+		{
+			// std::is_standard_layout is false, meaning that the first member
+			// is not reinterpret_cast-able to & from its class. The object
+			// type may have a vtable or inherit other classes.
+			return false;
+		}
+		else
+		{
+			constexpr union object_type
+			{
+				// Trivial constexpr destructor (C++20):
+				constexpr ~object_type() {}
+				// Something inconsequential to construct:
+				char m_constructed;
+				// Secondary member doesn't need constructor:
+				S m_instance;
+			} object{};
+			// Check if the given pointer-to-member is in fact the first:
+			return static_cast<const void*>(&object.m_instance)
+				== static_cast<const void*>(&(object.m_instance.*mem_ptr));
+		}
+	}
+} // namespace sh::pointer
+
+namespace sh
+{
 	/**	If Base is a virtual base of Derived, provide a member constant value equal to true. Otherwise value is false.
 	 *	@tparam Base The potential base type.
 	 *	@tparam Derived The potential derived type.
@@ -116,7 +152,7 @@ namespace sh::pointer
 	template <typename To, typename From>
 	constexpr bool is_static_cast_inert_v = is_static_cast_inert<To, From>::value;
 
-	/**	Test if To* can be static_cast to/from From* and never alter the underlying address (that is, reinterpret_cast would serve as well in place of static_cast), provide a member constant value equal to true. Otherwise value is false.
+	/**	Test if To* can be static_cast to From* and will never alter the underlying address (that is, reinterpret_cast would serve as well in place of static_cast). Otherwise value is false.
 	 *	@tparam From The pointed-to type of value given to static_cast.
 	 *	@tparam To The pointed-to type requested as the output value from static_cast.
 	 */
@@ -130,17 +166,26 @@ namespace sh::pointer
 		<From
 		, To
 		, std::void_t<
-			// Ensure static cast from From to To is possible. This will fail on virtual upcasting:
+			// Ensure static cast from From to To is possible. This will fail
+			// on virtual upcasting, unrelated types, incompatible arrays, and
+			// more.
 			decltype(
-				static_cast<std::remove_cv_t<To>*>(
-					std::declval<std::remove_cv_t<From>*>()
+				static_cast<std::add_pointer_t<To>>(
+					std::declval<std::add_pointer_t<From>>()
 				)
 			)>
 		>
 	{
 	private:
-		using from_type = std::remove_cv_t<From>;
-		using to_type = std::remove_cv_t<To>;
+		// Ignore const, volatile, extents (already checked by static_cast above):
+		using from_type = std::remove_cv_t<std::remove_all_extents_t<From>>;
+		using to_type = std::remove_cv_t<std::remove_all_extents_t<To>>;
+
+		// If one type is the derived type, instantiate that one:
+		using instance_type = std::conditional_t<
+			std::is_base_of_v<from_type, to_type>,
+			to_type,
+			from_type>;
 
 		/**	A union used to avoid constructing from_type or to_type.
 		 */
@@ -150,11 +195,15 @@ namespace sh::pointer
 			constexpr ~object_type() {}
 			// Something inconsequential to construct:
 			char m_constructed;
-			// If one type is the derived type, instantiate that one:
-			std::conditional_t<std::is_base_of_v<from_type, to_type>, to_type, from_type> m_instance;
+			// Secondary member doesn't need constructor:
+			instance_type m_instance;
 		} object{};
-		static constexpr const to_type* to_pointer = static_cast<const to_type*>(&object.m_instance);
-		static constexpr const from_type* from_pointer = static_cast<const from_type*>(&object.m_instance);
+		static constexpr const to_type* to_pointer{
+			static_cast<std::add_pointer_t<std::add_const_t<to_type>>>(&object.m_instance)
+		};
+		static constexpr const from_type* from_pointer{
+			static_cast<std::add_pointer_t<std::add_const_t<from_type>>>(&object.m_instance)
+		};
 
 	public:
 		static constexpr bool value = static_cast<const void*>(to_pointer) == static_cast<const void*>(from_pointer);
@@ -170,41 +219,9 @@ namespace sh::pointer
 #if __cpp_lib_is_pointer_interconvertible
 	using std::is_pointer_interconvertible_with_class;
 #else // !__cpp_lib_is_pointer_interconvertible
-	/**	Check if a pointer-to-member resides at the same address as its objects:
-	 *	@tparam S The object (e.g., struct or class) type.
-	 *	@tparam M The type of the pointed-to member.
-	 *	@param mem_ptr The pointer-to-member to inspect.
-	 *	@return True if the pointer-to-member is interconvertible with its owning object.
-	 */
-	template <typename S, typename M>
-	constexpr bool is_pointer_interconvertible_with_class(M S::* const mem_ptr) noexcept
-	{
-		if constexpr (std::is_standard_layout_v<M> == false)
-		{
-			// std::is_standard_layout is false, meaning that the first member
-			// is not reinterpret_cast-able to & from its class. The object
-			// type may have a vtable or inherit other classes.
-			return false;
-		}
-		else
-		{
-			// Use a union so that we don't need to construct S.
-			constexpr union object_type
-			{
-				// Trivial constexpr destructor (C++20):
-				constexpr ~object_type() {}
-				// Something inconsequential to construct:
-				char m_constructed;
-				// Instance of class/struct type to use:
-				S m_instance;
-			} object{};
-			// Check if the given pointer-to-member is in fact the first:
-			return static_cast<const void*>(&object.m_instance)
-				== static_cast<const void*>(&(object.m_instance.*mem_ptr));
-		}
-	}
+	using pointer::is_pointer_interconvertible_with_class;
 #endif // !__cpp_lib_is_pointer_interconvertible
 
-} // namespace sh::pointer
+} // namespace sh
 
 #endif

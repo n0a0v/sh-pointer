@@ -334,7 +334,8 @@ namespace sh::pointer
 		 */
 		void validate(const char* const origin) const noexcept
 		{
-			SH_POINTER_ASSERT(m_origin == origin);
+			SH_POINTER_ASSERT(m_origin == origin,
+				"Pointer control block origin isn't as expected.");
 		}
 		/**	In debug validation, check the a control will properly destruct a value.
 		 *	@param origin The origin to check against the origin set in validate_set_origin.
@@ -342,8 +343,10 @@ namespace sh::pointer
 		void validate_destruct(const char* const origin) noexcept
 		{
 			validate(origin);
-			SH_POINTER_ASSERT(m_destructed == false);
-			SH_POINTER_ASSERT(m_deallocated == false);
+			SH_POINTER_ASSERT(m_destructed == false,
+				"Control block destructing has already been destructed.");
+			SH_POINTER_ASSERT(m_deallocated == false,
+				"Control block destructing has already been deallocated.");
 			m_destructed = true;
 		}
 		/**	In debug validation, check the a control will properly deallocate (either storage or value).
@@ -352,8 +355,10 @@ namespace sh::pointer
 		void validate_deallocate(const char* const origin) noexcept
 		{
 			validate(origin);
-			SH_POINTER_ASSERT(m_destructed == true);
-			SH_POINTER_ASSERT(m_deallocated == false);
+			SH_POINTER_ASSERT(m_destructed == true,
+				"Control block deallocating hasn't been destructed yet.");
+			SH_POINTER_ASSERT(m_deallocated == false,
+				"Control block deallocating has already been deallocated");
 			m_deallocated = true;
 		}
 		/**	In debug validation, assign an origin to be checked by other validate functions.
@@ -361,7 +366,8 @@ namespace sh::pointer
 		 */
 		void validate_set_origin(const char* const origin) noexcept
 		{
-			SH_POINTER_ASSERT(m_origin == nullptr);
+			SH_POINTER_ASSERT(m_origin == nullptr,
+				"Changing control block origin a second time.");
 			m_origin = origin;
 		}
 
@@ -414,9 +420,9 @@ namespace sh::pointer
 		typename From,
 		typename Offset
 	>
+		requires std::is_pointer_v<To>
 	To backward_offset_cast(From* const from, const Offset& offset) noexcept
 	{
-		static_assert(std::is_pointer_v<To>, "backward_offset_cast To expected to be pointer type.");
 		using void_type = std::conditional_t<std::is_const_v<From>, const void, void>;
 		using byte_type = std::conditional_t<std::is_const_v<From>, const std::byte, std::byte>;
 		return reinterpret_cast<To>(static_cast<byte_type*>(static_cast<void_type*>(from)) - offset());
@@ -435,9 +441,9 @@ namespace sh::pointer
 		typename From,
 		typename Offset
 	>
+		requires std::is_pointer_v<To>
 	To forward_offset_cast(From* const from, const Offset& offset) noexcept
 	{
-		static_assert(std::is_pointer_v<To>, "forward_offset_cast To expected to be pointer type.");
 		using void_type = std::conditional_t<std::is_const_v<From>, const void, void>;
 		using byte_type = std::conditional_t<std::is_const_v<From>, const std::byte, std::byte>;
 		return reinterpret_cast<To>(static_cast<byte_type*>(static_cast<void_type*>(from)) + offset());
@@ -455,9 +461,9 @@ namespace sh::pointer
 		typename From,
 		typename OffsetType
 	>
+		requires std::is_pointer_v<To>
 	To backward_offset_cast(From* const from, const std::integral_constant<OffsetType, 0>&) noexcept
 	{
-		static_assert(std::is_pointer_v<To>, "backward_offset_cast To expected to be pointer type.");
 		return reinterpret_cast<To>(from);
 	}
 
@@ -473,9 +479,9 @@ namespace sh::pointer
 		typename From,
 		typename OffsetType
 	>
+		requires std::is_pointer_v<To>
 	To forward_offset_cast(From* const from, const std::integral_constant<OffsetType, 0>&) noexcept
 	{
-		static_assert(std::is_pointer_v<To>, "forward_offset_cast To expected to be pointer type.");
 		return reinterpret_cast<To>(from);
 	}
 
@@ -484,10 +490,8 @@ namespace sh::pointer
 	 *	@param ctrl A reference to a convertible_control.
 	 *	@return A reference to a value T that follows convertible_control.
 	 */
-	template <
-		typename T,
-		typename = std::enable_if_t<std::is_reference_v<T>>
-	>
+	template <typename T>
+		requires std::is_reference_v<T>
 	constexpr T convert_control_to_value(convertible_control& ctrl) noexcept
 	{
 		using element_type = std::remove_reference_t<T>;
@@ -500,10 +504,8 @@ namespace sh::pointer
 	 *	@param ctrl A pointer to a convertible_control.
 	 *	@return A pointer to a value T that follows convertible_control or nullptr.
 	 */
-	template <
-		typename T,
-		typename = std::enable_if_t<std::is_pointer_v<T>>
-	>
+	template <typename T>
+		requires std::is_pointer_v<T>
 	constexpr T convert_control_to_value(convertible_control* const ctrl) noexcept
 	{
 		return ctrl
@@ -558,9 +560,9 @@ namespace sh::pointer
 	 */
 	template <
 		typename T,
-		typename Alloc,
-		typename = std::enable_if_t<false == std::is_array_v<T>>
+		typename Alloc
 	>
+		requires (false == std::is_array_v<T>)
 	class value_convertible_to_control final
 	{
 	private:
@@ -1078,17 +1080,17 @@ namespace sh
 		}
 		element_type& operator*() const noexcept
 		{
-			SH_POINTER_ASSERT(m_value != nullptr);
+			SH_POINTER_ASSERT(m_value != nullptr, "Dereferencing nullptr shared_ptr.");
 			return *m_value;
 		}
 		element_type* operator->() const noexcept
 		{
-			SH_POINTER_ASSERT(m_value != nullptr);
+			SH_POINTER_ASSERT(m_value != nullptr, "Dereferencing nullptr shared_ptr.");
 			return m_value;
 		}
 		element_type& operator[](const std::ptrdiff_t idx) const noexcept
 		{
-			SH_POINTER_ASSERT(idx >= 0);
+			SH_POINTER_ASSERT(idx >= 0, "Negative index given to shared_ptr::operator[] has undefined results.");
 			if constexpr (std::is_array_v<T>)
 			{
 				SH_POINTER_ASSERT(
@@ -1097,12 +1099,13 @@ namespace sh
 						|| std::size_t(idx) < pointer::convert_value_to_control(*m_value).get_operations().m_get_element_count(
 							&pointer::convert_value_to_control(*m_value)
 						))
+					, "Index given to shared_ptr::operator[] is out of bounds."
 				);
 			}
 			else
 			{
-				SH_POINTER_ASSERT(idx == 0);
-				SH_POINTER_ASSERT(m_value != nullptr);
+				SH_POINTER_ASSERT(idx == 0, "Index given to shared_ptr::operator[] is out of bounds.");
+				SH_POINTER_ASSERT(m_value != nullptr, "Dereferencing nullptr shared_ptr in operator[].");
 			}
 			return m_value[idx];
 		}
@@ -1139,113 +1142,85 @@ namespace sh
 		}
 
 		// implicit conversion
-		template <typename U,
-			typename = std::enable_if_t<
-				std::is_convertible_v<U*, T*>
-				&& pointer::is_pointer_interconvertible_v<U, element_type>
-			>
-		>
+		template <typename U>
+			requires (std::is_convertible_v<U*, T*>
+				&& is_pointer_interconvertible_v<U, T>)
 		shared_ptr(const shared_ptr<U>& other) noexcept
 			: m_value{ other.get() }
 		{
 			increment(m_value);
 		}
-		template <typename U,
-			typename = std::enable_if_t<
-				std::is_convertible_v<U*, T*>
-				&& pointer::is_pointer_interconvertible_v<U, element_type>
-			>
-		>
+		template <typename U>
+			requires (std::is_convertible_v<U*, T*>
+				&& is_pointer_interconvertible_v<U, T>)
 		shared_ptr(shared_ptr<U>&& other) noexcept
 			: m_value{ std::exchange(other.m_value, nullptr) }
 		{ }
-		template <typename U,
-			typename = std::enable_if_t<
-				std::is_convertible_v<U*, T*>
-				&& pointer::is_pointer_interconvertible_v<U, element_type>
-			>
-		>
+		template <typename U>
+			requires (std::is_convertible_v<U*, T*>
+				&& is_pointer_interconvertible_v<U, T>)
 		shared_ptr& operator=(const shared_ptr<U>& other) noexcept
 		{
 			increment(other.get());
 			decrement(m_value);
 			m_value = other.get();
-			SH_POINTER_ASSERT(reinterpret_cast<std::uintptr_t>(m_value) == reinterpret_cast<std::uintptr_t>(other.get()));
+			SH_POINTER_ASSERT(static_cast<const void*>(m_value) == static_cast<const void*>(other.get()),
+				"sh::shared_ptr doesn't support offset value pointers.");
 			return *this;
 		}
-		template <typename U,
-			typename = std::enable_if_t<
-				std::is_convertible_v<U*, T*>
-				&& pointer::is_pointer_interconvertible_v<U, element_type>
-			>
-		>
+		template <typename U>
+			requires (std::is_convertible_v<U*, T*>
+				&& is_pointer_interconvertible_v<U, T>)
 		shared_ptr& operator=(shared_ptr<U>&& other) noexcept
 		{
 			auto* const value = std::exchange(other.m_value, nullptr);
 			this->decrement(m_value);
 			m_value = value;
-			SH_POINTER_ASSERT(reinterpret_cast<std::uintptr_t>(m_value) == reinterpret_cast<std::uintptr_t>(value));
+			SH_POINTER_ASSERT(static_cast<const void*>(m_value) == static_cast<const void*>(value),
+				"sh::shared_ptr doesn't support offset value pointers.");
 			return *this;
 		}
 
 		// const_cast
-		template <typename U,
-			typename = std::enable_if_t<
-				std::is_convertible_v<const U*, const T*>
-				&& pointer::is_pointer_interconvertible_v<U, element_type>
-			>
-		>
+		template <typename U>
+			requires (std::is_convertible_v<const U*, const T*>
+				&& is_pointer_interconvertible_v<std::remove_const_t<U>, std::remove_const_t<T>>)
 		shared_ptr(const pointer::const_cast_tag&, const shared_ptr<U>& other) noexcept
 			: m_value{ const_cast<element_type*>(other.get()) }
 		{
 			increment(m_value);
 		}
-		template <typename U,
-			typename = std::enable_if_t<
-				std::is_convertible_v<const U*, const T*>
-				&& pointer::is_pointer_interconvertible_v<U, element_type>
-			>
-		>
+		template <typename U>
+			requires (std::is_convertible_v<const U*, const T*>
+				&& is_pointer_interconvertible_v<std::remove_const_t<U>, std::remove_const_t<T>>)
 		shared_ptr(const pointer::const_cast_tag&, shared_ptr<U>&& other) noexcept
 			: m_value{ const_cast<element_type*>(std::exchange(other.m_value, nullptr)) }
 		{ }
 
 		// dynamic_cast
-		template <typename U,
-			typename = std::enable_if_t<
-				pointer::is_pointer_interconvertible_v<U, element_type>
-			>
-		>
+		template <typename U>
+			requires is_pointer_interconvertible_v<U, T>
 		shared_ptr(const pointer::dynamic_cast_tag&, const shared_ptr<U>& other) noexcept
 			: m_value{ dynamic_cast<element_type*>(other.get()) }
 		{
 			increment(m_value);
 		}
-		template <typename U,
-			typename = std::enable_if_t<
-				pointer::is_pointer_interconvertible_v<U, element_type>
-			>
-		>
+		template <typename U>
+			requires is_pointer_interconvertible_v<U, T>
 		shared_ptr(const pointer::dynamic_cast_tag&, shared_ptr<U>&& other) noexcept
 			: m_value{ dynamic_cast<element_type*>(std::exchange(other.m_value, nullptr)) }
 		{ }
 
 		// static_cast
-		template <typename U,
-			typename = std::enable_if_t<
-				pointer::is_pointer_interconvertible_v<U, element_type>
-			>
-		>
+		template <typename U>
+			requires is_pointer_interconvertible_v<U, T>
 		shared_ptr(const pointer::static_cast_tag&, const shared_ptr<U>& other) noexcept
 			: m_value{ static_cast<element_type*>(other.get()) }
 		{
 			increment(m_value);
 		}
-		template <typename U,
-			typename = std::enable_if_t<
-				pointer::is_pointer_interconvertible_v<U, element_type>
-			>
-		>
+		template <typename U>
+			requires is_pointer_interconvertible_v<U, T>
 		shared_ptr(const pointer::static_cast_tag&, shared_ptr<U>&& other) noexcept
 			: m_value{ static_cast<element_type*>(std::exchange(other.m_value, nullptr)) }
 		{ }
@@ -1267,29 +1242,51 @@ namespace sh
 		template <typename U> friend class shared_ptr;
 		template <typename U> friend class weak_ptr;
 
-		template <typename U, typename... Args, typename>
-		friend shared_ptr<U> make_shared(Args&&... args);
-
-		template <typename U, typename>
-		friend shared_ptr<U> make_shared_for_overwrite();
-
-		template <typename U, typename>
-		friend shared_ptr<U> make_shared(std::size_t);
-
-		template <typename U, typename>
-		friend shared_ptr<U> make_shared_for_overwrite(std::size_t);
-
-		template <typename U, typename Alloc, typename... Args, typename>
+		template <typename U, typename Alloc, typename... Args>
+			requires (false == std::is_array_v<U>
+				&& alignof(U) <= pointer::max_alignment)
 		friend shared_ptr<U> allocate_shared(const Alloc& alloc, Args&&... args);
 
-		template <typename U, typename Alloc, typename>
+		template <typename U, typename Alloc>
+			requires (false == std::is_array_v<U>
+				&& alignof(U) <= pointer::max_alignment)
 		friend shared_ptr<U> allocate_shared_for_overwrite(const Alloc& alloc);
 
-		template <typename U, typename Alloc, typename>
+		template <typename U, typename Alloc>
+			requires (std::is_array_v<U>
+				&& std::extent_v<U> == 0
+				&& alignof(U) <= pointer::max_alignment)
 		friend shared_ptr<U> allocate_shared(const Alloc& alloc, std::size_t element_count);
 
-		template <typename U, typename Alloc, typename>
+		template <typename U, typename Alloc>
+			requires (std::is_array_v<U>
+				&& std::extent_v<U> > 0
+				&& alignof(U) <= pointer::max_alignment)
+		friend shared_ptr<U> allocate_shared(const Alloc& alloc);
+
+		template <typename U, typename Alloc>
+			requires (std::is_array_v<U>
+				&& std::extent_v<U> == 0
+				&& alignof(U) <= pointer::max_alignment)
+		friend shared_ptr<U> allocate_shared(const Alloc& alloc, std::size_t element_count, const std::remove_extent_t<U>& init_value);
+
+		template <typename U, typename Alloc>
+			requires (std::is_array_v<U>
+				&& std::extent_v<U> > 0
+				&& alignof(U) <= pointer::max_alignment)
+		friend shared_ptr<U> allocate_shared(const Alloc& alloc, const std::remove_extent_t<U>& init_value);
+
+		template <typename U, typename Alloc>
+			requires (std::is_array_v<U>
+				&& std::extent_v<U> == 0
+				&& alignof(U) <= pointer::max_alignment)
 		friend shared_ptr<U> allocate_shared_for_overwrite(const Alloc& alloc, std::size_t element_count);
+
+		template <typename U, typename Alloc>
+			requires (std::is_array_v<U>
+				&& std::extent_v<U> > 0
+				&& alignof(U) <= pointer::max_alignment)
+		friend shared_ptr<U> allocate_shared_for_overwrite(const Alloc& alloc);
 
 		static void increment(element_type* const value) noexcept
 		{
@@ -1415,32 +1412,23 @@ namespace sh
 		}
 
 		// implicit conversion from weak_ptr
-		template <typename U,
-			typename = std::enable_if_t<
-				std::is_convertible_v<U*, T*>
-				&& pointer::is_pointer_interconvertible_v<U, element_type>
-			>
-		>
+		template <typename U>
+			requires (std::is_convertible_v<U*, T*>
+				&& is_pointer_interconvertible_v<U, T>)
 		weak_ptr(const weak_ptr<U>& other) noexcept
 			: m_ctrl{ other.m_ctrl }
 		{
 			increment(m_ctrl);
 		}
-		template <typename U,
-			typename = std::enable_if_t<
-				std::is_convertible_v<U*, T*>
-				&& pointer::is_pointer_interconvertible_v<U, element_type>
-			>
-		>
+		template <typename U>
+			requires (std::is_convertible_v<U*, T*>
+				&& is_pointer_interconvertible_v<U, T>)
 		weak_ptr(weak_ptr<U>&& other) noexcept
 			: m_ctrl{ std::exchange(other.m_ctrl, nullptr) }
 		{ }
-		template <typename U,
-			typename = std::enable_if_t<
-				std::is_convertible_v<U*, T*>
-				&& pointer::is_pointer_interconvertible_v<U, element_type>
-			>
-		>
+		template <typename U>
+			requires (std::is_convertible_v<U*, T*>
+				&& is_pointer_interconvertible_v<U, T>)
 		weak_ptr& operator=(const weak_ptr<U>& other) noexcept
 		{
 			increment(other.m_ctrl);
@@ -1448,12 +1436,9 @@ namespace sh
 			m_ctrl = other.m_ctrl;
 			return *this;
 		}
-		template <typename U,
-			typename = std::enable_if_t<
-				std::is_convertible_v<U*, T*>
-				&& pointer::is_pointer_interconvertible_v<U, element_type>
-			>
-		>
+		template <typename U>
+			requires (std::is_convertible_v<U*, T*>
+				&& is_pointer_interconvertible_v<U, T>)
 		weak_ptr& operator=(weak_ptr<U>&& other) noexcept
 		{
 			pointer::convertible_control* const ctrl = std::exchange(other.m_ctrl, nullptr);
@@ -1463,23 +1448,17 @@ namespace sh
 		}
 
 		// implicit conversion from shared_ptr
-		template <typename U,
-			typename = std::enable_if_t<
-				std::is_convertible_v<U*, T*>
-				&& pointer::is_pointer_interconvertible_v<U, element_type>
-			>
-		>
+		template <typename U>
+			requires (std::is_convertible_v<U*, T*>
+				&& is_pointer_interconvertible_v<U, T>)
 		weak_ptr(const shared_ptr<U>& other) noexcept
 			: m_ctrl{ pointer::convert_value_to_control(other.get()) }
 		{
 			increment(m_ctrl);
 		}
-		template <typename U,
-			typename = std::enable_if_t<
-				std::is_convertible_v<U*, T*>
-				&& pointer::is_pointer_interconvertible_v<U, element_type>
-			>
-		>
+		template <typename U>
+			requires (std::is_convertible_v<U*, T*>
+				&& is_pointer_interconvertible_v<U, T>)
 		weak_ptr& operator=(const shared_ptr<U>& other) noexcept
 		{
 			pointer::convertible_control* const ctrl = pointer::convert_value_to_control(other.get());
@@ -1525,12 +1504,10 @@ namespace sh
 	template <
 		typename T,
 		typename Alloc,
-		typename... Args,
-		typename = std::enable_if_t<
-			false == std::is_array_v<T>
-			&& alignof(T) <= pointer::max_alignment
-		>
+		typename... Args
 	>
+		requires (false == std::is_array_v<T>
+			&& alignof(T) <= pointer::max_alignment)
 	shared_ptr<T> allocate_shared(const Alloc& alloc, Args&&... args)
 	{
 		using origin_type = pointer::value_convertible_to_control<
@@ -1553,12 +1530,10 @@ namespace sh
 	 */
 	template <
 		typename T,
-		typename Alloc,
-		typename = std::enable_if_t<
-			false == std::is_array_v<T>
-			&& alignof(T) <= pointer::max_alignment
-		>
+		typename Alloc
 	>
+		requires (false == std::is_array_v<T>
+			&& alignof(T) <= pointer::max_alignment)
 	shared_ptr<T> allocate_shared_for_overwrite(const Alloc& alloc)
 	{
 		using origin_type = pointer::value_convertible_to_control<
@@ -1582,12 +1557,11 @@ namespace sh
 	 */
 	template <
 		typename T,
-		typename Alloc,
-		typename = std::enable_if_t<
-			std::is_array_v<T>
-			&& alignof(T) <= pointer::max_alignment
-		>
+		typename Alloc
 	>
+		requires (std::is_array_v<T>
+			&& std::extent_v<T> == 0
+			&& alignof(T) <= pointer::max_alignment)
 	shared_ptr<T> allocate_shared(const Alloc& alloc, const std::size_t element_count)
 	{
 		using origin_type = pointer::array_of_values_convertible_to_control<
@@ -1602,6 +1576,96 @@ namespace sh
 			)
 		};
 	}
+	/**	Constructs via a supplied allocator a sh::shared_ptr to own an array of (value initialized) elements of T.
+	 *	@throw May throw std::bad_alloc or other exceptions from T's constructor.
+	 *	@tparam T The type of element to construct.
+	 *	@tparam Alloc The allocator type to use for construction and destruction.
+	 *	@param alloc The allocator to use.
+	 *	@return A non-null sh::shared_ptr owning the elements T[N].
+	 */
+	template <
+		typename T,
+		typename Alloc
+	>
+		requires (std::is_array_v<T>
+			&& std::extent_v<T> > 0
+			&& alignof(T) <= pointer::max_alignment)
+	shared_ptr<T> allocate_shared(const Alloc& alloc)
+	{
+		using origin_type = pointer::array_of_values_convertible_to_control<
+			T,
+			Alloc,
+			std::integral_constant<std::size_t, std::extent_v<T>>
+		>;
+		return shared_ptr<T>{
+			origin_type::template allocate_array<pointer::construct_method::value_ctor>(
+				alloc,
+				std::integral_constant<std::size_t, std::extent_v<T>>{}
+			)
+		};
+	}
+	/**	Constructs via a supplied allocator a sh::shared_ptr to own an array of \p element_count (value initialized) elements of T.
+	 *	@throw May throw std::bad_alloc or other exceptions from T's constructor.
+	 *	@tparam T The type of element to construct.
+	 *	@tparam Alloc The allocator type to use for construction and destruction.
+	 *	@param alloc The allocator to use.
+	 *	@param element_count The number of elements to allocate & construct.
+	 *	@param init_value The value to copy into each allocated element.
+	 *	@return A non-null sh::shared_ptr owning the elements T[\p element_count].
+	 */
+	template <
+		typename T,
+		typename Alloc
+	>
+		requires (std::is_array_v<T>
+			&& std::extent_v<T> == 0
+			&& alignof(T) <= pointer::max_alignment)
+	shared_ptr<T> allocate_shared(const Alloc& alloc, const std::size_t element_count, const std::remove_extent_t<T>& init_value)
+	{
+		using origin_type = pointer::array_of_values_convertible_to_control<
+			T,
+			Alloc,
+			pointer::integral<std::size_t>
+		>;
+		return shared_ptr<T>{
+			origin_type::template allocate_array<pointer::construct_method::value_ctor>(
+				alloc,
+				pointer::integral<std::size_t>{ element_count },
+				init_value
+			)
+		};
+	}
+	/**	Constructs via a supplied allocator a sh::shared_ptr to own an array of (value initialized) elements of T.
+	 *	@throw May throw std::bad_alloc or other exceptions from T's constructor.
+	 *	@tparam T The type of element to construct.
+	 *	@tparam Alloc The allocator type to use for construction and destruction.
+	 *	@param alloc The allocator to use.
+	 *	@param init_value The value to copy into each allocated element.
+	 *	@return A non-null sh::shared_ptr owning the elements T[N].
+	 */
+	template <
+		typename T,
+		typename Alloc
+	>
+		requires (std::is_array_v<T>
+			&& std::extent_v<T> > 0
+			&& alignof(T) <= pointer::max_alignment)
+	shared_ptr<T> allocate_shared(const Alloc& alloc, const std::remove_extent_t<T>& init_value)
+	{
+		using origin_type = pointer::array_of_values_convertible_to_control<
+			T,
+			Alloc,
+			std::integral_constant<std::size_t, std::extent_v<T>>
+		>;
+		return shared_ptr<T>{
+			origin_type::template allocate_array<pointer::construct_method::value_ctor>(
+				alloc,
+				std::integral_constant<std::size_t, std::extent_v<T>>{},
+				init_value
+			)
+		};
+	}
+
 	/**	Constructs via a supplied allocator a sh::shared_ptr to own an array of \p element_count (default initialized) elements of T.
 	 *	@throw May throw std::bad_alloc or other exceptions from T's constructor.
 	 *	@tparam T The type of element to construct.
@@ -1612,12 +1676,11 @@ namespace sh
 	 */
 	template <
 		typename T,
-		typename Alloc,
-		typename = std::enable_if_t<
-			std::is_array_v<T>
-			&& alignof(T) <= pointer::max_alignment
-		>
+		typename Alloc
 	>
+		requires (std::is_array_v<T>
+			&& std::extent_v<T> == 0
+			&& alignof(T) <= pointer::max_alignment)
 	shared_ptr<T> allocate_shared_for_overwrite(const Alloc& alloc, const std::size_t element_count)
 	{
 		using origin_type = pointer::array_of_values_convertible_to_control<
@@ -1632,6 +1695,34 @@ namespace sh
 			)
 		};
 	}
+	/**	Constructs via a supplied allocator a sh::shared_ptr to own an array of (default initialized) elements of T.
+	 *	@throw May throw std::bad_alloc or other exceptions from T's constructor.
+	 *	@tparam T The type of element to construct.
+	 *	@tparam Alloc The allocator type to use for construction and destruction.
+	 *	@param alloc The allocator to use.
+	 *	@return A non-null sh::shared_ptr owning the elements of T[N].
+	 */
+	template <
+		typename T,
+		typename Alloc
+	>
+		requires (std::is_array_v<T>
+			&& std::extent_v<T> > 0
+			&& alignof(T) <= pointer::max_alignment)
+	shared_ptr<T> allocate_shared_for_overwrite(const Alloc& alloc)
+	{
+		using origin_type = pointer::array_of_values_convertible_to_control<
+			T,
+			Alloc,
+			std::integral_constant<std::size_t, std::extent_v<T>>
+		>;
+		return shared_ptr<T>{
+			origin_type::template allocate_array<pointer::construct_method::default_ctor>(
+				alloc,
+				std::integral_constant<std::size_t, std::extent_v<T>>{}
+			)
+		};
+	}
 
 	/**	Constructs a sh::shared_ptr to own a (value initialized) element T.
 	 *	@throw May throw std::bad_alloc or other exceptions from T's constructor.
@@ -1642,12 +1733,10 @@ namespace sh
 	 */
 	template <
 		typename T,
-		typename... Args,
-		typename = std::enable_if_t<
-			false == std::is_array_v<T>
-			&& alignof(T) <= pointer::max_alignment
-		>
+		typename... Args
 	>
+		requires (false == std::is_array_v<T>
+			&& alignof(T) <= pointer::max_alignment)
 	shared_ptr<T> make_shared(Args&&... args)
 	{
 		return sh::allocate_shared<T>(std::allocator<T>{}, std::forward<Args>(args)...);
@@ -1657,13 +1746,9 @@ namespace sh
 	 *	@tparam T The type of element to construct.
 	 *	@return A non-null sh::shared_ptr owning the element T.
 	 */
-	template <
-		typename T,
-		typename = std::enable_if_t<
-			false == std::is_array_v<T>
-			&& alignof(T) <= pointer::max_alignment
-		>
-	>
+	template <typename T>
+		requires (false == std::is_array_v<T>
+			&& alignof(T) <= pointer::max_alignment)
 	shared_ptr<T> make_shared_for_overwrite()
 	{
 		return sh::allocate_shared_for_overwrite<T>(std::allocator<T>{});
@@ -1675,86 +1760,142 @@ namespace sh
 	 *	@param element_count The number of elements to allocate & construct.
 	 *	@return A non-null sh::shared_ptr owning the elements T[\p element_count].
 	 */
-	template <
-		typename T,
-		typename = std::enable_if_t<
-			std::is_array_v<T>
-			&& alignof(T) <= pointer::max_alignment
-		>
-	>
+	template <typename T>
+		requires (std::is_array_v<T>
+			&& std::extent_v<T> == 0
+			&& alignof(T) <= pointer::max_alignment)
 	shared_ptr<T> make_shared(const std::size_t element_count)
 	{
-		return sh::allocate_shared<T>(std::allocator<T>{}, element_count);
+		using element_type = std::remove_extent_t<T>;
+		return sh::allocate_shared<T>(std::allocator<element_type>{}, element_count);
 	}
+	/**	Constructs a sh::shared_ptr to own an array of \p element_count (value initialized) elements of T.
+	 *	@throw May throw std::bad_alloc or other exceptions from T's constructor.
+	 *	@tparam T The type of element to construct.
+	 *	@param element_count The number of elements to allocate & construct.
+	 *	@param init_value The value to copy into each allocated element.
+	 *	@return A non-null sh::shared_ptr owning the elements T[\p element_count].
+	 */
+	template <typename T>
+		requires (std::is_array_v<T>
+			&& std::extent_v<T> == 0
+			&& alignof(T) <= pointer::max_alignment)
+	shared_ptr<T> make_shared(const std::size_t element_count, const std::remove_extent_t<T>& init_value)
+	{
+		using element_type = std::remove_extent_t<T>;
+		return sh::allocate_shared<T>(std::allocator<element_type>{}, element_count, init_value);
+	}
+	/**	Constructs a sh::shared_ptr to own an array of (value initialized) elements of T.
+	 *	@throw May throw std::bad_alloc or other exceptions from T's constructor.
+	 *	@tparam T The type of element to construct.
+	 *	@return A non-null sh::shared_ptr owning the elements T[N].
+	 */
+	template <typename T>
+		requires (std::is_array_v<T>
+			&& std::extent_v<T> > 0
+			&& alignof(T) <= pointer::max_alignment)
+	shared_ptr<T> make_shared()
+	{
+		using element_type = std::remove_extent_t<T>;
+		return sh::allocate_shared<T>(std::allocator<element_type>{});
+	}
+	/**	Constructs a sh::shared_ptr to own an array of (value initialized) elements of T.
+	 *	@throw May throw std::bad_alloc or other exceptions from T's constructor.
+	 *	@tparam T The type of element to construct.
+	 *	@param init_value The value to copy into each allocated element.
+	 *	@return A non-null sh::shared_ptr owning the elements T[N].
+	 */
+	template <typename T>
+		requires (std::is_array_v<T>
+			&& std::extent_v<T> > 0
+			&& alignof(T) <= pointer::max_alignment)
+	shared_ptr<T> make_shared(const std::remove_extent_t<T>& init_value)
+	{
+		using element_type = std::remove_extent_t<T>;
+		return sh::allocate_shared<T>(std::allocator<element_type>{}, init_value);
+	}
+
 	/**	Constructs a sh::shared_ptr to own an array of \p element_count (default initialized) elements of T.
 	 *	@throw May throw std::bad_alloc or other exceptions from T's constructor.
 	 *	@tparam T The type of element to construct.
 	 *	@param element_count The number of elements to allocate & construct.
 	 *	@return A non-null sh::shared_ptr owning the elements T[\p element_count].
 	 */
-	template <
-		typename T,
-		typename = std::enable_if_t<
-			std::is_array_v<T>
-			&& alignof(T) <= pointer::max_alignment
-		>
-	>
+	template <typename T>
+		requires (std::is_array_v<T>
+			&& std::extent_v<T> == 0
+			&& alignof(T) <= pointer::max_alignment)
 	shared_ptr<T> make_shared_for_overwrite(const std::size_t element_count)
 	{
-		return sh::allocate_shared_for_overwrite<T>(std::allocator<T>{}, element_count);
+		using element_type = std::remove_extent_t<T>;
+		return sh::allocate_shared_for_overwrite<T>(std::allocator<element_type>{}, element_count);
+	}
+	/**	Constructs a sh::shared_ptr to own an array of (default initialized) elements of T.
+	 *	@throw May throw std::bad_alloc or other exceptions from T's constructor.
+	 *	@tparam T The type of element to construct.
+	 *	@return A non-null sh::shared_ptr owning the elements T[N].
+	 */
+	template <typename T>
+		requires (std::is_array_v<T>
+			&& std::extent_v<T> > 0
+			&& alignof(T) <= pointer::max_alignment)
+	shared_ptr<T> make_shared_for_overwrite()
+	{
+		using element_type = std::remove_extent_t<T>;
+		return sh::allocate_shared_for_overwrite<T>(std::allocator<element_type>{});
 	}
 
 	// shared_ptr -> shared_ptr casts:
 	template <
 		typename T,
-		typename U,
-		typename = std::enable_if_t<pointer::is_pointer_interconvertible_v<U, T>>
+		typename U
 	>
+		requires is_pointer_interconvertible_v<std::remove_const_t<U>, std::remove_const_t<T>>
 	shared_ptr<T> const_pointer_cast(const shared_ptr<U>& from)
 	{
 		return shared_ptr<T>{ pointer::const_cast_tag{}, from };
 	}
 	template <
 		typename T,
-		typename U,
-		typename = std::enable_if_t<pointer::is_pointer_interconvertible_v<U, T>>
+		typename U
 	>
+		requires is_pointer_interconvertible_v<std::remove_const_t<U>, std::remove_const_t<T>>
 	shared_ptr<T> const_pointer_cast(shared_ptr<U>&& from)
 	{
 		return shared_ptr<T>{ pointer::const_cast_tag{}, std::move(from) };
 	}
 	template <
 		typename T,
-		typename U,
-		typename = std::enable_if_t<pointer::is_pointer_interconvertible_v<U, T>>
+		typename U
 	>
+		requires is_pointer_interconvertible_v<U, T>
 	shared_ptr<T> dynamic_pointer_cast(const shared_ptr<U>& from)
 	{
 		return shared_ptr<T>{ pointer::dynamic_cast_tag{}, from };
 	}
 	template <
 		typename T,
-		typename U,
-		typename = std::enable_if_t<pointer::is_pointer_interconvertible_v<U, T>>
+		typename U
 	>
+		requires is_pointer_interconvertible_v<U, T>
 	shared_ptr<T> dynamic_pointer_cast(shared_ptr<U>&& from)
 	{
 		return shared_ptr<T>{ pointer::dynamic_cast_tag{}, std::move(from) };
 	}
 	template <
 		typename T,
-		typename U,
-		typename = std::enable_if_t<pointer::is_pointer_interconvertible_v<U, T>>
+		typename U
 	>
+		requires is_pointer_interconvertible_v<U, T>
 	shared_ptr<T> static_pointer_cast(const shared_ptr<U>& from)
 	{
 		return shared_ptr<T>{ pointer::static_cast_tag{}, from };
 	}
 	template <
 		typename T,
-		typename U,
-		typename = std::enable_if_t<pointer::is_pointer_interconvertible_v<U, T>>
+		typename U
 	>
+		requires is_pointer_interconvertible_v<U, T>
 	shared_ptr<T> static_pointer_cast(shared_ptr<U>&& from)
 	{
 		return shared_ptr<T>{ pointer::static_cast_tag{}, std::move(from) };

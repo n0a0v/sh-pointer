@@ -38,6 +38,7 @@
 using sh::const_pointer_cast;
 using sh::dynamic_pointer_cast;
 using sh::get_deleter;
+using sh::is_pointer_interconvertible_v;
 using sh::make_shared;
 using sh::reinterpret_pointer_cast;
 using sh::shared_ptr;
@@ -53,6 +54,7 @@ namespace
 		std::size_t m_allocate_calls{ 0 };
 		std::size_t m_deallocate_calls{ 0 };
 		std::size_t m_construct_calls{ 0 };
+		std::size_t m_construct_default{ 0 };
 		std::size_t m_destroy_calls{ 0 };
 
 		friend std::ostream& operator<<(std::ostream& ostr, const allocations& all)
@@ -62,6 +64,7 @@ namespace
 				", allocate calls " << all.m_allocate_calls <<
 				", deallocate calls " << all.m_deallocate_calls <<
 				", construct calls " << all.m_construct_calls <<
+				", construct default " << all.m_construct_default <<
 				", destroy calls " << all.m_destroy_calls;
 		}
 	};
@@ -129,20 +132,14 @@ namespace
 		void construct(U* const p, Args&&... args)
 		{
 			allocator_traits::construct(*this, p, std::forward<Args>(args)...);
-			if constexpr (std::is_trivially_destructible_v<U> == false)
-			{
-				general_allocations::get().m_construct_calls += 1;
-				typed_allocations<T>::get().m_construct_calls += 1;
-			}
+			general_allocations::get().m_construct_calls += 1;
+			typed_allocations<T>::get().m_construct_calls += 1;
 		}
 		template <typename U>
 		void destroy(U* const p)
 		{
-			if constexpr (std::is_trivially_destructible_v<U> == false)
-			{
-				general_allocations::get().m_destroy_calls += 1;
-				typed_allocations<T>::get().m_destroy_calls += 1;
-			}
+			general_allocations::get().m_destroy_calls += 1;
+			typed_allocations<T>::get().m_destroy_calls += 1;
 			allocator_traits::destroy(*this, p);
 		}
 	};
@@ -204,7 +201,7 @@ namespace
 			using other = stateful_allocator<U, typename Allocator::template rebind<U>::other>;
 		};
 
-		explicit stateful_allocator(const int state) noexcept
+		explicit stateful_allocator(const int state = 123) noexcept
 			: m_state{ state }
 		{ }
 		stateful_allocator(const stateful_allocator& other) = default;
@@ -221,7 +218,7 @@ namespace
 			: m_state{ other.m_state }
 		{ }
 
-		int m_state{ 123 };
+		int m_state;
 	};
 
 	namespace SimpleInheritance
@@ -265,10 +262,18 @@ namespace
 
 	struct throws_on_counter
 	{
-		static int current_counter;
 		static int throw_counter;
+		static int current_counter;
 
 		throws_on_counter()
+			: m_value{ current_counter++ }
+		{
+			if (throw_counter >= 0 && m_value == throw_counter)
+			{
+				throw configurable_exception{};
+			}
+		}
+		throws_on_counter(const throws_on_counter&)
 			: m_value{ current_counter++ }
 		{
 			if (throw_counter >= 0 && m_value == throw_counter)
@@ -280,8 +285,8 @@ namespace
 		int m_value;
 	};
 
-	int throws_on_counter::current_counter = 0;
 	int throws_on_counter::throw_counter = -1;
+	int throws_on_counter::current_counter = 0;
 
 	class sh_shared_ptr : public ::testing::Test
 	{
@@ -293,6 +298,7 @@ namespace
 			ASSERT_EQ(0u, general_allocations::get().m_allocate_calls);
 			ASSERT_EQ(0u, general_allocations::get().m_deallocate_calls);
 			ASSERT_EQ(0u, general_allocations::get().m_construct_calls);
+			ASSERT_EQ(0u, general_allocations::get().m_construct_default);
 			ASSERT_EQ(0u, general_allocations::get().m_destroy_calls);
 
 			throws_on_counter::current_counter = 0;
@@ -300,12 +306,10 @@ namespace
 		}
 		void TearDown() override
 		{
-			EXPECT_EQ(0u, general_allocations::get().m_current)
-				<< general_allocations::get();
-			EXPECT_EQ(general_allocations::get().m_allocate_calls, general_allocations::get().m_deallocate_calls)
-				<< general_allocations::get();
-			EXPECT_EQ(general_allocations::get().m_construct_calls, general_allocations::get().m_destroy_calls)
-				<< general_allocations::get();
+			const auto& gen = general_allocations::get();
+			EXPECT_EQ(0u, gen.m_current) << gen;
+			EXPECT_EQ(gen.m_allocate_calls, gen.m_deallocate_calls) << gen;
+			EXPECT_EQ(gen.m_construct_calls + gen.m_construct_default, gen.m_destroy_calls) << gen;
 		}
 	};
 
@@ -360,7 +364,7 @@ TEST_F(sh_shared_ptr, shared_ptr_ctor_move)
 TEST_F(sh_shared_ptr, shared_ptr_ctor_copy_implicit)
 {
 	using namespace SimpleInheritance;
-	static_assert(sh::pointer::is_pointer_interconvertible_v<Derived, Base>);
+	static_assert(is_pointer_interconvertible_v<Derived, Base>);
 	const shared_ptr<Derived> x{ make_shared<Derived>() };
 	const shared_ptr<const Base> y{ x };
 	EXPECT_TRUE(bool(y));
@@ -371,7 +375,7 @@ TEST_F(sh_shared_ptr, shared_ptr_ctor_copy_implicit)
 TEST_F(sh_shared_ptr, shared_ptr_ctor_move_implicit)
 {
 	using namespace SimpleInheritance;
-	static_assert(sh::pointer::is_pointer_interconvertible_v<Derived, Base>);
+	static_assert(is_pointer_interconvertible_v<Derived, Base>);
 	const shared_ptr<const Base> x{ make_shared<Derived>() };
 	EXPECT_TRUE(bool(x));
 	EXPECT_EQ(1u, x.use_count());
@@ -442,7 +446,7 @@ TEST_F(sh_shared_ptr, shared_ptr_assign_move)
 TEST_F(sh_shared_ptr, shared_ptr_assign_copy_implicit)
 {
 	using namespace SimpleInheritance;
-	static_assert(sh::pointer::is_pointer_interconvertible_v<Derived, Base>);
+	static_assert(is_pointer_interconvertible_v<Derived, Base>);
 	const shared_ptr<Derived> x{ make_shared<Derived>() };
 	shared_ptr<const Base> y;
 	y = x;
@@ -454,7 +458,7 @@ TEST_F(sh_shared_ptr, shared_ptr_assign_copy_implicit)
 TEST_F(sh_shared_ptr, shared_ptr_assign_move_implicit)
 {
 	using namespace SimpleInheritance;
-	static_assert(sh::pointer::is_pointer_interconvertible_v<Derived, Base>);
+	static_assert(is_pointer_interconvertible_v<Derived, Base>);
 	shared_ptr<Derived> x{ make_shared<Derived>() };
 	shared_ptr<const Base> y;
 	y = std::move(x);
@@ -636,7 +640,7 @@ TEST_F(sh_shared_ptr, weak_ptr_ctor_shared_ptr)
 TEST_F(sh_shared_ptr, weak_ptr_ctor_copy_shared_ptr_implicit)
 {
 	using namespace SimpleInheritance;
-	static_assert(sh::pointer::is_pointer_interconvertible_v<Derived, Base>);
+	static_assert(is_pointer_interconvertible_v<Derived, Base>);
 	const shared_ptr<Derived> x{ make_shared<Derived>() };
 	const weak_ptr<const Base> y{ x };
 	EXPECT_EQ(1u, y.use_count());
@@ -646,7 +650,7 @@ TEST_F(sh_shared_ptr, weak_ptr_ctor_copy_shared_ptr_implicit)
 TEST_F(sh_shared_ptr, weak_ptr_ctor_copy_weak_ptr_implicit)
 {
 	using namespace SimpleInheritance;
-	static_assert(sh::pointer::is_pointer_interconvertible_v<Derived, Base>);
+	static_assert(is_pointer_interconvertible_v<Derived, Base>);
 	const shared_ptr<Derived> x{ make_shared<Derived>() };
 	const weak_ptr<Derived> y{ x };
 	const weak_ptr<const Base> z{ y };
@@ -657,7 +661,7 @@ TEST_F(sh_shared_ptr, weak_ptr_ctor_copy_weak_ptr_implicit)
 TEST_F(sh_shared_ptr, weak_ptr_ctor_move_implicit)
 {
 	using namespace SimpleInheritance;
-	static_assert(sh::pointer::is_pointer_interconvertible_v<Derived, Base>);
+	static_assert(is_pointer_interconvertible_v<Derived, Base>);
 	const shared_ptr<Derived> x{ make_shared<Derived>() };
 	weak_ptr<Derived> y{ x };
 	const weak_ptr<const Base> z{ std::move(y) };
@@ -774,7 +778,7 @@ TEST_F(sh_shared_ptr, weak_ptr_assign_move)
 TEST_F(sh_shared_ptr, weak_ptr_assign_copy_shared_ptr_implicit)
 {
 	using namespace SimpleInheritance;
-	static_assert(sh::pointer::is_pointer_interconvertible_v<Derived, Base>);
+	static_assert(is_pointer_interconvertible_v<Derived, Base>);
 	{
 		shared_ptr<Derived> x{ make_shared<Derived>() };
 		weak_ptr<const Base> y;
@@ -795,7 +799,7 @@ TEST_F(sh_shared_ptr, weak_ptr_assign_copy_shared_ptr_implicit)
 TEST_F(sh_shared_ptr, weak_ptr_assign_copy_weak_ptr_implicit)
 {
 	using namespace SimpleInheritance;
-	static_assert(sh::pointer::is_pointer_interconvertible_v<Derived, Base>);
+	static_assert(is_pointer_interconvertible_v<Derived, Base>);
 	{
 		shared_ptr<Derived> x{ make_shared<Derived>() };
 		weak_ptr<Derived> y{ x };
@@ -818,7 +822,7 @@ TEST_F(sh_shared_ptr, weak_ptr_assign_copy_weak_ptr_implicit)
 TEST_F(sh_shared_ptr, weak_ptr_assign_move_implicit)
 {
 	using namespace SimpleInheritance;
-	static_assert(sh::pointer::is_pointer_interconvertible_v<Derived, Base>);
+	static_assert(is_pointer_interconvertible_v<Derived, Base>);
 	{
 		shared_ptr<Derived> x{ make_shared<Derived>() };
 		weak_ptr<Derived> y{ x };
@@ -1028,59 +1032,67 @@ TEST_F(sh_shared_ptr, make_shared)
 }
 TEST_F(sh_shared_ptr, make_shared_throw)
 {
-	throws_on_counter::current_counter = 0;
 	throws_on_counter::throw_counter = 0;
+	throws_on_counter::current_counter = 0;
 	EXPECT_THROW(make_shared<throws_on_counter>(), configurable_exception);
 }
 TEST_F(sh_shared_ptr, make_shared_array)
 {
 	using namespace SingleInheritance;
-	shared_ptr<Derived[]> x{ make_shared<Derived[]>(2) };
-	EXPECT_TRUE(bool(x));
-	EXPECT_NE(nullptr, x.get());
-	EXPECT_EQ(1u, x.use_count());
-
-	x.reset();
-	x = make_shared<Derived[]>(3);
-	EXPECT_TRUE(bool(x));
-	EXPECT_NE(nullptr, x.get());
-	EXPECT_EQ(1u, x.use_count());
-
-	weak_ptr<Derived[]> y{ x };
-	EXPECT_EQ(x.get(), y.lock().get());
-	EXPECT_EQ(1u, y.use_count());
-
-	x.reset();
-	EXPECT_EQ(nullptr, y.lock().get());
-	EXPECT_EQ(0u, y.use_count());
-}
-TEST_F(sh_shared_ptr, make_shared_array_multidim)
-{
-	using namespace SingleInheritance;
-	shared_ptr<Derived[][2]> x{ make_shared<Derived[][2]>(2) };
-	EXPECT_TRUE(bool(x));
-	EXPECT_NE(nullptr, x.get());
-	EXPECT_EQ(1u, x.use_count());
-
-	x.reset();
-	x = make_shared<Derived[][2]>(3);
-	EXPECT_TRUE(bool(x));
-	EXPECT_NE(nullptr, x.get());
-	EXPECT_EQ(1u, x.use_count());
-
-	weak_ptr<Derived[][2]> y{ x };
-	EXPECT_EQ(x.get(), y.lock().get());
-	EXPECT_EQ(1u, y.use_count());
-
-	x.reset();
-	EXPECT_EQ(nullptr, y.lock().get());
-	EXPECT_EQ(0u, y.use_count());
+	{
+		shared_ptr<Derived[]> x{ make_shared<Derived[]>(2) };
+		EXPECT_TRUE(bool(x));
+		EXPECT_NE(nullptr, x.get());
+		EXPECT_EQ(1u, x.use_count());
+	}
+	{
+		shared_ptr<Derived[]> x{ make_shared<Derived[2]>() };
+		EXPECT_TRUE(bool(x));
+		EXPECT_NE(nullptr, x.get());
+		EXPECT_EQ(1u, x.use_count());
+	}
+	{
+		shared_ptr<Derived[2]> x{ make_shared<Derived[2]>() };
+		EXPECT_TRUE(bool(x));
+		EXPECT_NE(nullptr, x.get());
+		EXPECT_EQ(1u, x.use_count());
+	}
+	{
+		constexpr int value{ 123 };
+		shared_ptr<int[]> x{ make_shared<int[]>(2, value) };
+		EXPECT_TRUE(bool(x));
+		EXPECT_NE(nullptr, x.get());
+		EXPECT_EQ(1u, x.use_count());
+		EXPECT_EQ(value, x[0]);
+		EXPECT_EQ(value, x[1]);
+	}
+	{
+		constexpr int value{ 123 };
+		shared_ptr<int[2]> x{ make_shared<int[2]>(value) };
+		EXPECT_TRUE(bool(x));
+		EXPECT_NE(nullptr, x.get());
+		EXPECT_EQ(1u, x.use_count());
+		EXPECT_EQ(value, x[0]);
+		EXPECT_EQ(value, x[1]);
+	}
+	{
+		shared_ptr<int[][2]> x{ make_shared<int[][2]>(2) };
+		EXPECT_TRUE(bool(x));
+		EXPECT_NE(nullptr, x.get());
+		EXPECT_EQ(1u, x.use_count());
+	}
 }
 TEST_F(sh_shared_ptr, make_shared_array_throw)
 {
-	throws_on_counter::current_counter = 0;
 	throws_on_counter::throw_counter = 1;
+	throws_on_counter::current_counter = 0;
 	EXPECT_THROW(make_shared<throws_on_counter[]>(3), configurable_exception);
+	throws_on_counter::current_counter = 0;
+	EXPECT_THROW(make_shared<throws_on_counter[4]>(), configurable_exception);
+	throws_on_counter::current_counter = 0;
+	EXPECT_THROW(make_shared<throws_on_counter[]>(3, throws_on_counter{}), configurable_exception);
+	throws_on_counter::current_counter = 0;
+	EXPECT_THROW(make_shared<throws_on_counter[4]>(throws_on_counter{}), configurable_exception);
 }
 TEST_F(sh_shared_ptr, allocate_shared)
 {
@@ -1130,8 +1142,8 @@ TEST_F(sh_shared_ptr, allocate_shared)
 }
 TEST_F(sh_shared_ptr, allocate_shared_throw)
 {
-	throws_on_counter::current_counter = 0;
 	throws_on_counter::throw_counter = 0;
+	throws_on_counter::current_counter = 0;
 	EXPECT_THROW(sh::allocate_shared<throws_on_counter>(counted_allocator<throws_on_counter>{}), configurable_exception);
 }
 TEST_F(sh_shared_ptr, allocate_shared_array)
@@ -1143,54 +1155,69 @@ TEST_F(sh_shared_ptr, allocate_shared_array)
 		EXPECT_TRUE(bool(x));
 		EXPECT_NE(nullptr, x.get());
 		EXPECT_EQ(1u, x.use_count());
-
-		x.reset();
-		x = sh::allocate_shared<Derived[]>(alloc, 3);
+	}
+	{
+		counted_allocator<Derived> alloc;
+		shared_ptr<Derived[]> x{ sh::allocate_shared<Derived[2]>(alloc) };
 		EXPECT_TRUE(bool(x));
 		EXPECT_NE(nullptr, x.get());
 		EXPECT_EQ(1u, x.use_count());
-
-		weak_ptr<Derived[]> y{ x };
-		EXPECT_EQ(x.get(), y.lock().get());
-		EXPECT_EQ(1u, y.use_count());
-
-		x.reset();
-		EXPECT_EQ(nullptr, y.lock().get());
-		EXPECT_EQ(0u, y.use_count());
 	}
 	{
-		stateful_allocator<Derived> alloc{ 123 };
+		counted_allocator<Derived> alloc;
+		shared_ptr<Derived[2]> x{ sh::allocate_shared<Derived[2]>(alloc) };
+		EXPECT_TRUE(bool(x));
+		EXPECT_NE(nullptr, x.get());
+		EXPECT_EQ(1u, x.use_count());
+	}
+	{
+		constexpr int value{ 123 };
+		counted_allocator<int> alloc;
+		shared_ptr<int[]> x{ sh::allocate_shared<int[]>(alloc, 2, value) };
+		EXPECT_TRUE(bool(x));
+		EXPECT_NE(nullptr, x.get());
+		EXPECT_EQ(1u, x.use_count());
+		EXPECT_EQ(x[0], value);
+		EXPECT_EQ(x[1], value);
+	}
+	{
+		constexpr int value{ 123 };
+		counted_allocator<int> alloc;
+		shared_ptr<int[2]> x{ sh::allocate_shared<int[2]>(alloc, value) };
+		EXPECT_TRUE(bool(x));
+		EXPECT_NE(nullptr, x.get());
+		EXPECT_EQ(1u, x.use_count());
+		EXPECT_EQ(x[0], value);
+		EXPECT_EQ(x[1], value);
+	}
+	{
+		stateful_allocator<Derived> alloc;
 		shared_ptr<Derived[]> x{ sh::allocate_shared<Derived[]>(alloc, 2u) };
 		EXPECT_TRUE(bool(x));
 		EXPECT_NE(nullptr, x.get());
 		EXPECT_EQ(1u, x.use_count());
-
-		x.reset();
-		x = sh::allocate_shared<Derived[]>(alloc, 3);
-		EXPECT_TRUE(bool(x));
-		EXPECT_NE(nullptr, x.get());
-		EXPECT_EQ(1u, x.use_count());
-
-		weak_ptr<Derived[]> y{ x };
-		EXPECT_EQ(x.get(), y.lock().get());
-		EXPECT_EQ(1u, y.use_count());
-
-		x.reset();
-		EXPECT_EQ(nullptr, y.lock().get());
-		EXPECT_EQ(0u, y.use_count());
 	}
 }
 TEST_F(sh_shared_ptr, allocate_shared_array_throw)
 {
-	throws_on_counter::current_counter = 0;
 	throws_on_counter::throw_counter = 1;
+	throws_on_counter::current_counter = 0;
 	EXPECT_THROW(sh::allocate_shared<throws_on_counter[]>(counted_allocator<throws_on_counter>{}, 3), configurable_exception);
+	throws_on_counter::current_counter = 0;
+	EXPECT_THROW(sh::allocate_shared<throws_on_counter[4]>(counted_allocator<throws_on_counter>{}), configurable_exception);
+
+	throws_on_counter::throw_counter = 3;
+	throws_on_counter::current_counter = 0;
+	EXPECT_THROW(sh::allocate_shared<throws_on_counter[]>(counted_allocator<throws_on_counter>{}, 3, throws_on_counter{}), configurable_exception);
+	throws_on_counter::current_counter = 0;
+	EXPECT_THROW(sh::allocate_shared<throws_on_counter[4]>(counted_allocator<throws_on_counter>{}, throws_on_counter{}), configurable_exception);
 }
 TEST_F(sh_shared_ptr, allocate_shared_for_overwrite)
 {
 	constexpr char prefill = '\xff';
 	prefill_allocator<char, prefill> alloc;
 	shared_ptr<char> x{ sh::allocate_shared_for_overwrite<char>(alloc) };
+	general_allocations::get().m_construct_default += 1;
 	ASSERT_TRUE(bool(x));
 	EXPECT_EQ(prefill, *x);
 
@@ -1199,6 +1226,7 @@ TEST_F(sh_shared_ptr, allocate_shared_for_overwrite)
 
 	x.reset();
 	x = sh::allocate_shared_for_overwrite<char>(alloc);
+	general_allocations::get().m_construct_default += 1;
 	ASSERT_TRUE(bool(x));
 	EXPECT_EQ(prefill, *x);
 
@@ -1215,48 +1243,46 @@ TEST_F(sh_shared_ptr, allocate_shared_for_overwrite)
 }
 TEST_F(sh_shared_ptr, allocate_shared_for_overwrite_throw)
 {
-	throws_on_counter::current_counter = 0;
 	throws_on_counter::throw_counter = 0;
+	throws_on_counter::current_counter = 0;
 	EXPECT_THROW(sh::allocate_shared_for_overwrite<throws_on_counter>(counted_allocator<throws_on_counter>{}), configurable_exception);
 }
 TEST_F(sh_shared_ptr, allocate_shared_for_overwrite_array)
 {
 	constexpr char prefill = '\xff';
 	prefill_allocator<char, prefill> alloc;
-	shared_ptr<char[]> x{ sh::allocate_shared_for_overwrite<char[]>(alloc, 4) };
-	ASSERT_TRUE(bool(x));
-	EXPECT_EQ(prefill, x[0]);
-	EXPECT_EQ(prefill, x[1]);
-	EXPECT_EQ(prefill, x[2]);
-	EXPECT_EQ(prefill, x[3]);
-
-	EXPECT_NE(nullptr, x.get());
-	EXPECT_EQ(1u, x.use_count());
-
-	x.reset();
-	x = sh::allocate_shared_for_overwrite<char[]>(alloc, 4);
-	ASSERT_TRUE(bool(x));
-	EXPECT_EQ(prefill, x[0]);
-	EXPECT_EQ(prefill, x[1]);
-	EXPECT_EQ(prefill, x[2]);
-	EXPECT_EQ(prefill, x[3]);
-
-	EXPECT_NE(nullptr, x.get());
-	EXPECT_EQ(1u, x.use_count());
-
-	weak_ptr<char[]> y{ x };
-	EXPECT_EQ(x.get(), y.lock().get());
-	EXPECT_EQ(1u, y.use_count());
-
-	x.reset();
-	EXPECT_EQ(nullptr, y.lock().get());
-	EXPECT_EQ(0u, y.use_count());
+	{
+		shared_ptr<char[]> x{ sh::allocate_shared_for_overwrite<char[]>(alloc, 4) };
+		general_allocations::get().m_construct_default += 4;
+		ASSERT_TRUE(bool(x));
+		ASSERT_NE(nullptr, x.get());
+		EXPECT_EQ(1u, x.use_count());
+		EXPECT_EQ(prefill, x[0]);
+		EXPECT_EQ(prefill, x[1]);
+		EXPECT_EQ(prefill, x[2]);
+		EXPECT_EQ(prefill, x[3]);
+	}
+	{
+		shared_ptr<char[]> x{ sh::allocate_shared_for_overwrite<char[4]>(alloc) };
+		general_allocations::get().m_construct_default += 4;
+		ASSERT_TRUE(bool(x));
+		ASSERT_NE(nullptr, x.get());
+		EXPECT_EQ(1u, x.use_count());
+		EXPECT_EQ(prefill, x[0]);
+		EXPECT_EQ(prefill, x[1]);
+		EXPECT_EQ(prefill, x[2]);
+		EXPECT_EQ(prefill, x[3]);
+	}
 }
 TEST_F(sh_shared_ptr, allocate_shared_for_overwrite_array_throw)
 {
-	throws_on_counter::current_counter = 0;
 	throws_on_counter::throw_counter = 1;
+	throws_on_counter::current_counter = 0;
 	EXPECT_THROW(sh::allocate_shared_for_overwrite<throws_on_counter[]>(counted_allocator<throws_on_counter>{}, 3), configurable_exception);
+	general_allocations::get().m_construct_default += 1;
+	throws_on_counter::current_counter = 0;
+	EXPECT_THROW(sh::allocate_shared_for_overwrite<throws_on_counter[4]>(counted_allocator<throws_on_counter>{}), configurable_exception);
+	general_allocations::get().m_construct_default += 1;
 }
 
 TEST_F(sh_shared_ptr, shared_ptr_const_cast)
