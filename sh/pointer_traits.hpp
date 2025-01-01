@@ -59,6 +59,47 @@
 
 namespace sh::pointer
 {
+	/**	A union that intentionally doesn't initialize a instance of the given type.
+	 *	@note More powerful std::declval, basically.
+	 */
+	template <typename T>
+	union addressable_val_t final
+	{
+		constexpr addressable_val_t() noexcept
+			: m_constructed{}
+		{ }
+		/**	Trivial constexpr destructor (C++20):
+		 */
+		constexpr ~addressable_val_t()
+		{ }
+		/**	Something inconsequential to construct.
+		 */
+		char m_constructed;
+		/**	Secondary member that doesn't construct.
+		 */
+		struct constexpr_dtor_type final
+		{
+			/* For MSVC, must wrap T with another type with an explicitly constexpr marked destructor because
+			 * MSVC incorrectly checks that all union member destructors are constexpr even if not called.
+			 *
+			 * See: https://developercommunity.visualstudio.com/t/Constexpr-union-destructor-cannot-result/10486017
+			 */
+			constexpr ~constexpr_dtor_type() = default;
+
+			T m_instance;
+		} m_wrapper;
+	};
+
+	/**	Returns the address of a addressable_val_t's object instance.
+	 *	@param val An addressable_val_t.
+	 *	@return The address of an addressable_val_t's object instance.
+	 */
+	template <typename T>
+	constexpr const T* addressable_val(const addressable_val_t<T>& val) noexcept
+	{
+		return std::addressof(val.m_wrapper.m_instance);
+	}
+
 	/**	Check if a pointer-to-member resides at the same address as its objects:
 	 *	@tparam S The object (e.g., struct or class) type.
 	 *	@tparam M The type of the pointed-to member.
@@ -77,18 +118,10 @@ namespace sh::pointer
 		}
 		else
 		{
-			constexpr union object_type
-			{
-				// Trivial constexpr destructor (C++20):
-				constexpr ~object_type() {}
-				// Something inconsequential to construct:
-				char m_constructed;
-				// Secondary member doesn't need constructor:
-				S m_instance;
-			} object{};
+			constexpr pointer::addressable_val_t<S> instance;
 			// Check if the given pointer-to-member is in fact the first:
-			return static_cast<const void*>(&object.m_instance)
-				== static_cast<const void*>(&(object.m_instance.*mem_ptr));
+			return static_cast<const void*>(addressable_val(instance))
+				== static_cast<const void*>(std::addressof(addressable_val(instance)->*mem_ptr));
 		}
 	}
 } // namespace sh::pointer
@@ -166,14 +199,18 @@ namespace sh
 		<From
 		, To
 		, std::void_t<
-			// Ensure static cast from From to To is possible. This will fail
-			// on virtual upcasting, unrelated types, incompatible arrays, and
-			// more.
-			decltype(
-				static_cast<std::add_pointer_t<To>>(
-					std::declval<std::add_pointer_t<From>>()
-				)
-			)>
+			std::enable_if_t<
+				// MSVC requires checking this or certain virtual upcasts will
+				// result in an internal compiler error:
+				false == is_virtual_base_of_v<To, From>,
+				// Ensure static cast from From to To is possible. This will
+				// fail unrelated types, incompatible arrays, and more:
+				decltype(
+					static_cast<std::add_pointer_t<To>>(
+						std::declval<std::add_pointer_t<From>>()
+					)
+				)>
+			>
 		>
 	{
 	private:
@@ -187,32 +224,12 @@ namespace sh
 			to_type,
 			from_type>;
 
-		/**	A union used to avoid constructing from_type or to_type.
-		 */
-		static constexpr union object_type
-		{
-			// Trivial constexpr destructor (C++20):
-			constexpr ~object_type() {}
-			// Something inconsequential to construct:
-			char m_constructed;
-			// Secondary member doesn't need constructor:
-			struct constexpr_dtor_type final
-			{
-				/* For MSVC, must wrap instance_type with another type with an explicitly constexpr marked destructor
-				 * because MSVC incorrectly checks that all union member destructors are constexpr even if not called.
-				 *
-				 * See: https://developercommunity.visualstudio.com/t/Constexpr-union-destructor-cannot-result/10486017
-				 */
-				constexpr ~constexpr_dtor_type() = default;
-
-				instance_type m_instance;
-			} m_wrapper;
-		} object{};
+		static constexpr pointer::addressable_val_t<instance_type> m_instance{};
 		static constexpr const to_type* to_pointer{
-			static_cast<std::add_pointer_t<std::add_const_t<to_type>>>(&object.m_wrapper.m_instance)
+			static_cast<std::add_pointer_t<std::add_const_t<to_type>>>(pointer::addressable_val(m_instance))
 		};
 		static constexpr const from_type* from_pointer{
-			static_cast<std::add_pointer_t<std::add_const_t<from_type>>>(&object.m_wrapper.m_instance)
+			static_cast<std::add_pointer_t<std::add_const_t<from_type>>>(pointer::addressable_val(m_instance))
 		};
 
 	public:

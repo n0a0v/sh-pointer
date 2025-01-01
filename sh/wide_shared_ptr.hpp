@@ -57,9 +57,16 @@
 
 namespace sh::pointer
 {
-	struct unknown_count final : std::integral_constant<std::size_t, ~std::size_t{ 0 }>
-	{ };
+	/**	Derivation of integral_constant intended to represent an unknown quantity.
+	 */
+	struct unknown_count final : std::integral_constant<
+		std::size_t,
+		(std::size_t{ ~std::size_t{ 0 } })
+	> { };
 
+	/**	A deleter with a particular operator(), usable by external_value_control, that receives extra arguments.
+	 *	@tparam T The type to be deleted.
+	 */
 	template <typename T>
 	struct external_value_deleter final
 	{
