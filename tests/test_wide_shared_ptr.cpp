@@ -1450,6 +1450,8 @@ TEST_F(sh_wide_shared_ptr, make_shared_array)
 	make_shared<extended_alignment[]>(2, extended_alignment{ 123 });
 	make_shared<extended_alignment[2]>();
 	make_shared<extended_alignment[2]>(extended_alignment{ 123 });
+	make_shared<extended_alignment[][2]>(2);
+	make_shared<extended_alignment[2][2]>();
 }
 TEST_F(sh_wide_shared_ptr, make_shared_array_throw)
 {
@@ -1573,13 +1575,6 @@ TEST_F(sh_wide_shared_ptr, allocate_shared_array)
 	{
 		stateful_allocator<Derived> alloc;
 		wide_shared_ptr<Derived[]> x{ sh::allocate_shared<Derived[]>(alloc, 2u) };
-		EXPECT_TRUE(bool(x));
-		EXPECT_NE(nullptr, x.get());
-		EXPECT_EQ(1u, x.use_count());
-	}
-	{
-		counted_allocator<extended_alignment[2]> alloc;
-		wide_shared_ptr<extended_alignment[2][2]> x{ sh::allocate_shared<extended_alignment[2][2]>(alloc) };
 		EXPECT_TRUE(bool(x));
 		EXPECT_NE(nullptr, x.get());
 		EXPECT_EQ(1u, x.use_count());

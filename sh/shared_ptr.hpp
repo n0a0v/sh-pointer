@@ -93,6 +93,9 @@
  */
 #if !defined(SH_POINTER_NO_UNIQUE_ADDRESS)
 	#if defined(_MSC_VER)
+		#if _MCS_VER < 1929
+			#error "MSVC v14x ABI doesn't support no_unique_address. See: https://devblogs.microsoft.com/cppblog/msvc-cpp20-and-the-std-cpp20-switch/"
+		#endif // _MCS_VER < 1929
 		#define SH_POINTER_NO_UNIQUE_ADDRESS [[msvc::no_unique_address]]
 	#else // !_MSC_VER
 		#define SH_POINTER_NO_UNIQUE_ADDRESS [[no_unique_address]]
@@ -148,6 +151,8 @@ namespace sh::pointer
 #endif // SH_POINTER_DEBUG_SHARED_PTR
 	};
 
+	using use_count_t = std::uint32_t;
+
 	/**	A control block containing shared & weak reference counts and access to destruction & deallocation operations.
 	 */
 	class control
@@ -195,10 +200,10 @@ namespace sh::pointer
 		 *	@note Stored count may change immediately after returning
 		 *	@return The number of shared_one references.
 		 */
-		std::uint32_t get_shared_count() const noexcept
+		use_count_t get_shared_count() const noexcept
 		{
 			// Each value count can only be from a shared count.
-			return to_value_count(m_counter.load(std::memory_order_relaxed));
+			return use_count_t{ to_value_count(m_counter.load(std::memory_order_relaxed)) };
 		}
 		/**	Increment counter by shared_one.
 		 *	@detail Used by shared_ptr.
@@ -1009,6 +1014,98 @@ namespace sh::pointer
 		}
 	};
 
+	/**	A wrapper around std::allocator for use by sh::make_shared.
+	 */
+	template <typename T>
+	struct default_allocator : private std::allocator<T>
+	{
+		using allocator_traits = std::allocator_traits<std::allocator<T>>;
+		using value_type = typename allocator_traits::value_type;
+		using size_type = typename allocator_traits::size_type;
+		using difference_type = typename allocator_traits::difference_type;
+
+		template <typename U>
+		struct rebind
+		{
+			using other = default_allocator<U>;
+		};
+
+		template <typename U>
+		friend struct default_allocator;
+
+		default_allocator() = default;
+		default_allocator(const default_allocator& other) = default;
+		default_allocator(default_allocator&& other) noexcept = default;
+		default_allocator& operator=(const default_allocator& other) = default;
+		default_allocator& operator=(default_allocator&& other) noexcept = default;
+
+		template <typename U>
+		constexpr explicit default_allocator(const default_allocator<U>& other)
+			noexcept(std::is_nothrow_copy_constructible_v<std::allocator<T>>)
+			: std::allocator<T>{ other }
+		{ }
+		template <typename U>
+		constexpr explicit default_allocator(default_allocator<U>&& other)
+			noexcept(std::is_nothrow_move_constructible_v<std::allocator<T>>)
+			: std::allocator<T>{ std::move(other) }
+		{ }
+
+		[[nodiscard]] constexpr T* allocate(const std::size_t n)
+			noexcept(noexcept(allocator_traits::allocate(static_cast<std::allocator<T>&>(*this), n)))
+		{
+			return allocator_traits::allocate(static_cast<std::allocator<T>&>(*this), n);
+		}
+		constexpr void deallocate(T* const p, const std::size_t n)
+			noexcept(noexcept(allocator_traits::deallocate(static_cast<std::allocator<T>&>(*this), p, n)))
+		{
+			allocator_traits::deallocate(static_cast<std::allocator<T>&>(*this), p, n);
+		}
+		template <typename U, typename... Args>
+		constexpr void construct(U* const p, Args&&... args)
+			noexcept(noexcept(allocator_traits::construct(static_cast<std::allocator<T>&>(*this), p, args...)))
+		{
+#if !defined(__GLIBCXX__)
+			// At present, only libstdc++ std::construct_at (used during
+			// std::allocator::construct) supports multidimensional allocation.
+			if constexpr (std::is_array_v<U>)
+			{
+				static_assert(sizeof...(args) == 0, "Arguments are unexpected when constructing array.");
+				default_allocator<std::remove_extent_t<U>> element_alloc{ *this };
+				using element_allocator_traits = std::allocator_traits<decltype(element_alloc)>;
+				for (std::size_t index = 0; index < std::rank_v<T>; ++index)
+				{
+					element_allocator_traits::construct(element_alloc, p + index);
+				}
+			}
+			else
+#endif // !__GLIBCXX__
+			{
+				allocator_traits::construct(static_cast<std::allocator<T>&>(*this), p, std::forward<Args>(args)...);
+			}
+		}
+		template <typename U>
+		constexpr void destroy(U* const p)
+			noexcept(noexcept(allocator_traits::destroy(static_cast<std::allocator<T>&>(*this), p)))
+		{
+#if !defined(__GLIBCXX__)
+			if constexpr (std::is_array_v<U>)
+			{
+				default_allocator<std::remove_extent_t<U>> element_alloc{ *this };
+				using element_allocator_traits = std::allocator_traits<decltype(element_alloc)>;
+				// Destroy right-to-left:
+				for (std::size_t index = std::rank_v<T>; index > 0; )
+				{
+					--index;
+					element_allocator_traits::destroy(element_alloc, p + index);
+				}
+			}
+			else
+#endif // !__GLIBCXX__
+			{
+				allocator_traits::destroy(static_cast<std::allocator<T>&>(*this), p);
+			}
+		}
+	};
 
 } // namespace sh::pointer
 
@@ -1109,9 +1206,9 @@ namespace sh
 			}
 			return m_value[idx];
 		}
-		long use_count() const noexcept
+		pointer::use_count_t use_count() const noexcept
 		{
-			return m_value ? long{ pointer::convert_value_to_control(*m_value).get_shared_count() } : 0L;
+			return m_value ? pointer::convert_value_to_control(*m_value).get_shared_count() : pointer::use_count_t{ 0 };
 		}
 		explicit constexpr operator bool() const noexcept
 		{
@@ -1375,9 +1472,9 @@ namespace sh
 			using std::swap;
 			swap(m_ctrl, other.m_ctrl);
 		}
-		long use_count() const noexcept
+		pointer::use_count_t use_count() const noexcept
 		{
-			return m_ctrl ? long{ m_ctrl->get_shared_count() } : 0L;
+			return m_ctrl ? m_ctrl->get_shared_count() : pointer::use_count_t{ 0 };
 		}
 		shared_ptr<T> lock() const noexcept
 		{
@@ -1739,7 +1836,7 @@ namespace sh
 			&& alignof(T) <= pointer::max_alignment)
 	shared_ptr<T> make_shared(Args&&... args)
 	{
-		return sh::allocate_shared<T>(std::allocator<T>{}, std::forward<Args>(args)...);
+		return sh::allocate_shared<T>(pointer::default_allocator<T>{}, std::forward<Args>(args)...);
 	}
 	/**	Constructs a sh::shared_ptr to own a (default initialized) element T.
 	 *	@throw May throw std::bad_alloc or other exceptions from T's constructor.
@@ -1751,7 +1848,7 @@ namespace sh
 			&& alignof(T) <= pointer::max_alignment)
 	shared_ptr<T> make_shared_for_overwrite()
 	{
-		return sh::allocate_shared_for_overwrite<T>(std::allocator<T>{});
+		return sh::allocate_shared_for_overwrite<T>(pointer::default_allocator<T>{});
 	}
 
 	/**	Constructs a sh::shared_ptr to own an array of \p element_count (value initialized) elements of T.
@@ -1767,7 +1864,7 @@ namespace sh
 	shared_ptr<T> make_shared(const std::size_t element_count)
 	{
 		using element_type = std::remove_extent_t<T>;
-		return sh::allocate_shared<T>(std::allocator<element_type>{}, element_count);
+		return sh::allocate_shared<T>(pointer::default_allocator<element_type>{}, element_count);
 	}
 	/**	Constructs a sh::shared_ptr to own an array of \p element_count (value initialized) elements of T.
 	 *	@throw May throw std::bad_alloc or other exceptions from T's constructor.
@@ -1783,7 +1880,7 @@ namespace sh
 	shared_ptr<T> make_shared(const std::size_t element_count, const std::remove_extent_t<T>& init_value)
 	{
 		using element_type = std::remove_extent_t<T>;
-		return sh::allocate_shared<T>(std::allocator<element_type>{}, element_count, init_value);
+		return sh::allocate_shared<T>(pointer::default_allocator<element_type>{}, element_count, init_value);
 	}
 	/**	Constructs a sh::shared_ptr to own an array of (value initialized) elements of T.
 	 *	@throw May throw std::bad_alloc or other exceptions from T's constructor.
@@ -1797,7 +1894,7 @@ namespace sh
 	shared_ptr<T> make_shared()
 	{
 		using element_type = std::remove_extent_t<T>;
-		return sh::allocate_shared<T>(std::allocator<element_type>{});
+		return sh::allocate_shared<T>(pointer::default_allocator<element_type>{});
 	}
 	/**	Constructs a sh::shared_ptr to own an array of (value initialized) elements of T.
 	 *	@throw May throw std::bad_alloc or other exceptions from T's constructor.
@@ -1812,7 +1909,7 @@ namespace sh
 	shared_ptr<T> make_shared(const std::remove_extent_t<T>& init_value)
 	{
 		using element_type = std::remove_extent_t<T>;
-		return sh::allocate_shared<T>(std::allocator<element_type>{}, init_value);
+		return sh::allocate_shared<T>(pointer::default_allocator<element_type>{}, init_value);
 	}
 
 	/**	Constructs a sh::shared_ptr to own an array of \p element_count (default initialized) elements of T.
@@ -1828,7 +1925,7 @@ namespace sh
 	shared_ptr<T> make_shared_for_overwrite(const std::size_t element_count)
 	{
 		using element_type = std::remove_extent_t<T>;
-		return sh::allocate_shared_for_overwrite<T>(std::allocator<element_type>{}, element_count);
+		return sh::allocate_shared_for_overwrite<T>(pointer::default_allocator<element_type>{}, element_count);
 	}
 	/**	Constructs a sh::shared_ptr to own an array of (default initialized) elements of T.
 	 *	@throw May throw std::bad_alloc or other exceptions from T's constructor.
@@ -1842,7 +1939,7 @@ namespace sh
 	shared_ptr<T> make_shared_for_overwrite()
 	{
 		using element_type = std::remove_extent_t<T>;
-		return sh::allocate_shared_for_overwrite<T>(std::allocator<element_type>{});
+		return sh::allocate_shared_for_overwrite<T>(pointer::default_allocator<element_type>{});
 	}
 
 	// shared_ptr -> shared_ptr casts:

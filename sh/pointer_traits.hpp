@@ -196,13 +196,23 @@ namespace sh
 			// Something inconsequential to construct:
 			char m_constructed;
 			// Secondary member doesn't need constructor:
-			instance_type m_instance;
+			struct constexpr_dtor_type final
+			{
+				/* For MSVC, must wrap instance_type with another type with an explicitly constexpr marked destructor
+				 * because MSVC incorrectly checks that all union member destructors are constexpr even if not called.
+				 *
+				 * See: https://developercommunity.visualstudio.com/t/Constexpr-union-destructor-cannot-result/10486017
+				 */
+				constexpr ~constexpr_dtor_type() = default;
+
+				instance_type m_instance;
+			} m_wrapper;
 		} object{};
 		static constexpr const to_type* to_pointer{
-			static_cast<std::add_pointer_t<std::add_const_t<to_type>>>(&object.m_instance)
+			static_cast<std::add_pointer_t<std::add_const_t<to_type>>>(&object.m_wrapper.m_instance)
 		};
 		static constexpr const from_type* from_pointer{
-			static_cast<std::add_pointer_t<std::add_const_t<from_type>>>(&object.m_instance)
+			static_cast<std::add_pointer_t<std::add_const_t<from_type>>>(&object.m_wrapper.m_instance)
 		};
 
 	public:

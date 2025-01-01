@@ -1081,6 +1081,12 @@ TEST_F(sh_shared_ptr, make_shared_array)
 		EXPECT_NE(nullptr, x.get());
 		EXPECT_EQ(1u, x.use_count());
 	}
+	{
+		shared_ptr<Derived[][2]> x{ make_shared<Derived[][2]>(2) };
+		EXPECT_TRUE(bool(x));
+		EXPECT_NE(nullptr, x.get());
+		EXPECT_EQ(1u, x.use_count());
+	}
 }
 TEST_F(sh_shared_ptr, make_shared_array_throw)
 {

@@ -457,12 +457,12 @@ namespace sh
 					T,
 					pointer::unknown_count,
 					std::default_delete<T>,
-					std::allocator<void>
+					pointer::default_allocator<void>
 				>::allocate_control(
 					ptr,
 					pointer::unknown_count{},
 					std::default_delete<T>{},
-					std::allocator<void>{}
+					pointer::default_allocator<void>{}
 				)
 			}
 		{
@@ -478,12 +478,12 @@ namespace sh
 					T,
 					pointer::unknown_count,
 					Deleter,
-					std::allocator<void>
+					pointer::default_allocator<void>
 				>::allocate_control(
 					ptr,
 					pointer::unknown_count{},
 					std::move(d),
-					std::allocator<void>{}
+					pointer::default_allocator<void>{}
 				)
 			}
 		{ }
@@ -496,12 +496,12 @@ namespace sh
 					T,
 					pointer::unknown_count,
 					Deleter,
-					std::allocator<void>
+					pointer::default_allocator<void>
 				>::allocate_control(
 					nullptr,
 					pointer::unknown_count{},
 					std::move(d),
-					std::allocator<void>{}
+					pointer::default_allocator<void>{}
 				)
 			}
 		{ }
@@ -628,12 +628,12 @@ namespace sh
 				T,
 				pointer::unknown_count,
 				std::default_delete<T>,
-				std::allocator<void>
+				pointer::default_allocator<void>
 			>::allocate_control(
 				ptr,
 				pointer::unknown_count{},
 				std::default_delete<T>{},
-				std::allocator<void>{}
+				pointer::default_allocator<void>{}
 			);
 		}
 		template <
@@ -649,12 +649,12 @@ namespace sh
 				T,
 				pointer::unknown_count,
 				Deleter,
-				std::allocator<void>
+				pointer::default_allocator<void>
 			>::allocate_control(
 				ptr,
 				pointer::unknown_count{},
 				std::move(d),
-				std::allocator<void>{}
+				pointer::default_allocator<void>{}
 			);
 		}
 		template <
@@ -718,9 +718,9 @@ namespace sh
 			}
 			return m_value[idx];
 		}
-		long use_count() const noexcept
+		pointer::use_count_t use_count() const noexcept
 		{
-			return m_ctrl ? long{ m_ctrl->get_shared_count() } : 0L;
+			return m_ctrl ? m_ctrl->get_shared_count() : pointer::use_count_t{ 0 };
 		}
 		explicit constexpr operator bool() const noexcept
 		{
@@ -1057,9 +1057,9 @@ namespace sh
 			swap(m_ctrl, other.m_ctrl);
 			swap(m_value, other.m_value);
 		}
-		long use_count() const noexcept
+		pointer::use_count_t use_count() const noexcept
 		{
-			return m_ctrl ? long{ m_ctrl->get_shared_count() } : 0L;
+			return m_ctrl ? m_ctrl->get_shared_count() : pointer::use_count_t{ 0 };
 		}
 		bool expired() const noexcept
 		{
@@ -1494,7 +1494,7 @@ namespace sh
 			&& alignof(T) > pointer::max_alignment)
 	wide_shared_ptr<T> make_shared(Args&&... args)
 	{
-		return sh::allocate_shared<T>(std::allocator<T>{}, std::forward<Args>(args)...);
+		return sh::allocate_shared<T>(pointer::default_allocator<T>{}, std::forward<Args>(args)...);
 	}
 	/**	Constructs a sh::wide_shared_ptr to own a (default initialized) element T.
 	 *	@throw May throw std::bad_alloc or other exceptions from T's constructor.
@@ -1506,7 +1506,7 @@ namespace sh
 			&& alignof(T) > pointer::max_alignment)
 	wide_shared_ptr<T> make_shared_for_overwrite()
 	{
-		return sh::allocate_shared_for_overwrite<T>(std::allocator<T>{});
+		return sh::allocate_shared_for_overwrite<T>(pointer::default_allocator<T>{});
 	}
 
 	/**	Constructs a sh::wide_shared_ptr to own an array of \p element_count (value initialized) elements of T.
@@ -1522,7 +1522,7 @@ namespace sh
 	wide_shared_ptr<T> make_shared(const std::size_t element_count)
 	{
 		using element_type = std::remove_extent_t<T>;
-		return sh::allocate_shared<T>(std::allocator<element_type>{}, element_count);
+		return sh::allocate_shared<T>(pointer::default_allocator<element_type>{}, element_count);
 	}
 	/**	Constructs a sh::wide_shared_ptr to own an array of (value initialized) elements of T.
 	 *	@throw May throw std::bad_alloc or other exceptions from T's constructor.
@@ -1536,7 +1536,7 @@ namespace sh
 	wide_shared_ptr<T> make_shared()
 	{
 		using element_type = std::remove_extent_t<T>;
-		return sh::allocate_shared<T>(std::allocator<element_type>{});
+		return sh::allocate_shared<T>(pointer::default_allocator<element_type>{});
 	}
 	/**	Constructs a sh::wide_shared_ptr to own an array of \p element_count (value initialized) elements of T.
 	 *	@throw May throw std::bad_alloc or other exceptions from T's constructor.
@@ -1552,7 +1552,7 @@ namespace sh
 	wide_shared_ptr<T> make_shared(const std::size_t element_count, const std::remove_extent_t<T>& init_value)
 	{
 		using element_type = std::remove_extent_t<T>;
-		return sh::allocate_shared<T>(std::allocator<element_type>{}, element_count, init_value);
+		return sh::allocate_shared<T>(pointer::default_allocator<element_type>{}, element_count, init_value);
 	}
 	/**	Constructs a sh::wide_shared_ptr to own an array of (value initialized) elements of T.
 	 *	@throw May throw std::bad_alloc or other exceptions from T's constructor.
@@ -1567,7 +1567,7 @@ namespace sh
 	wide_shared_ptr<T> make_shared(const std::remove_extent_t<T>& init_value)
 	{
 		using element_type = std::remove_extent_t<T>;
-		return sh::allocate_shared<T>(std::allocator<element_type>{}, init_value);
+		return sh::allocate_shared<T>(pointer::default_allocator<element_type>{}, init_value);
 	}
 	/**	Constructs a sh::wide_shared_ptr to own an array of \p element_count (default initialized) elements of T.
 	 *	@throw May throw std::bad_alloc or other exceptions from T's constructor.
@@ -1582,7 +1582,7 @@ namespace sh
 	wide_shared_ptr<T> make_shared_for_overwrite(const std::size_t element_count)
 	{
 		using element_type = std::remove_extent_t<T>;
-		return sh::allocate_shared_for_overwrite<T>(std::allocator<element_type>{}, element_count);
+		return sh::allocate_shared_for_overwrite<T>(pointer::default_allocator<element_type>{}, element_count);
 	}
 	/**	Constructs a sh::wide_shared_ptr to own an array of (default initialized) elements of T.
 	 *	@throw May throw std::bad_alloc or other exceptions from T's constructor.
@@ -1598,7 +1598,7 @@ namespace sh
 	wide_shared_ptr<T> make_shared_for_overwrite()
 	{
 		using element_type = std::remove_extent_t<T>;
-		return sh::allocate_shared_for_overwrite<T>(std::allocator<element_type>{});
+		return sh::allocate_shared_for_overwrite<T>(pointer::default_allocator<element_type>{});
 	}
 
 	// wide_shared_ptr -> wide_shared_ptr casts:
