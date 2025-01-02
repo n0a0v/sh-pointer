@@ -5,6 +5,7 @@ tested with:
 	* g++ 13
 	* g++ 14
 	* clang 18
+	* MSVC 2022 (17.11.3)
 
 CMake & binaries are setup for unit testing. Define NDEBUG during Release-type
 builds to disable many asserts.

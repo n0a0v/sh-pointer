@@ -1,6 +1,6 @@
 /*	BSD 3-Clause License
 
-	Copyright (c) 2024, Paul Varga
+	Copyright (c) 2024-2025, Paul Varga
 	All rights reserved.
 
 	Redistribution and use in source and binary forms, with or without
@@ -93,9 +93,9 @@
  */
 #if !defined(SH_POINTER_NO_UNIQUE_ADDRESS)
 	#if defined(_MSC_VER)
-		#if _MCS_VER < 1929
+		#if _MSC_VER < 1929
 			#error "MSVC v14x ABI doesn't support no_unique_address. See: https://devblogs.microsoft.com/cppblog/msvc-cpp20-and-the-std-cpp20-switch/"
-		#endif // _MCS_VER < 1929
+		#endif // _MSC_VER < 1929
 		#define SH_POINTER_NO_UNIQUE_ADDRESS [[msvc::no_unique_address]]
 	#else // !_MSC_VER
 		#define SH_POINTER_NO_UNIQUE_ADDRESS [[no_unique_address]]
