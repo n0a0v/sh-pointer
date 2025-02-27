@@ -1601,7 +1601,6 @@ namespace sh
 		requires (std::is_array_v<T>
 			&& std::extent_v<T> > 0
 			&& alignof(T) > pointer::max_alignment)
-// TEST
 	wide_shared_ptr<T> make_shared_for_overwrite()
 	{
 		using element_type = std::remove_extent_t<T>;

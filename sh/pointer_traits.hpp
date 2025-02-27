@@ -109,7 +109,7 @@ namespace sh::pointer
 	template <typename S, typename M>
 	constexpr bool is_pointer_interconvertible_with_class(M S::* const mem_ptr) noexcept
 	{
-		if constexpr (std::is_standard_layout_v<M> == false)
+		if constexpr (std::is_standard_layout_v<S> == false)
 		{
 			// std::is_standard_layout is false, meaning that the first member
 			// is not reinterpret_cast-able to & from its class. The object
