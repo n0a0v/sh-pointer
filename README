@@ -24,5 +24,6 @@ To use sh::shared_ptr and sh::weak_ptr requires:
 	* sh/shared_ptr.hpp
 Adding the wide varieties sh::wide_shared_ptr and sh::wide_weak_ptr:
 	* sh/wide_shared_ptr.hpp
+Including wide_shared_ptr also defines sh::enable_shared_from_this.
 
 I hope this is useful or at least interesting!

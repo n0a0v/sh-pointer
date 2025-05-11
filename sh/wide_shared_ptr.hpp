@@ -1,6 +1,6 @@
 /*	BSD 3-Clause License
 
-	Copyright (c) 2024, Paul Varga
+	Copyright (c) 2024-2025, Paul Varga
 	All rights reserved.
 
 	Redistribution and use in source and binary forms, with or without
@@ -39,13 +39,14 @@
  *		* allocate_shared_for_overwrite
  *		* const_pointer_cast
  *		* dynamic_pointer_cast
+ *		* enable_shared_from_this
  *		* get_deleter
  *		* make_shared
  *		* make_shared_for_overwrite
  *		* owner_less
  *		* reinterpret_pointer_cast
  *		* static_pointer_cast
- *		* std::hash<sh::shared_ptr>
+ *		* std::hash<sh::wide_shared_ptr>
  *
  *	These "wide" varieties of sh::shared_ptr/weak_ptr are more fully featured
  *	and aim to be comparable to std::shared_ptr and std::weak_ptr. To do so,
@@ -915,6 +916,7 @@ namespace sh
 		template <typename U> friend class wide_weak_ptr;
 		template <typename U> friend class shared_ptr;
 		template <typename U> friend class weak_ptr;
+		template <typename U> friend class enable_shared_from_this;
 
 		template <typename U, typename Alloc, typename... Args>
 			requires (false == std::is_array_v<U>
@@ -980,6 +982,10 @@ namespace sh
 			}
 		}
 
+		/**	Constructor for internal use that accepts an associated control & value that have a shared_inc that this wide_shared_ptr will assume.
+		 *	@param control_with_one_ref A control associated with the given value with a shared_inc to assume.
+		 *	@param value A value associated with the given control.
+		 */
 		wide_shared_ptr(pointer::control* const control_with_one_ref, element_type* const value) noexcept
 			: m_value{ value }
 			, m_ctrl{ control_with_one_ref }
@@ -1244,6 +1250,7 @@ namespace sh
 		template <typename U> friend class weak_ptr;
 		template <typename U> friend class wide_shared_ptr;
 		template <typename U> friend class wide_weak_ptr;
+		template <typename U> friend class enable_shared_from_this;
 
 		static void increment(pointer::control* const ctrl) noexcept
 		{
@@ -1259,6 +1266,15 @@ namespace sh
 				ctrl->weak_dec();
 			}
 		}
+
+		/**	Constructor for internal use that accepts an associated control & value that have a weak_inc that this wide_weak_ptr will assume.
+		 *	@param control_with_one_ref A control associated with the given value with a weak_inc to assume.
+		 *	@param value A value associated with the given control.
+		 */
+		wide_weak_ptr(pointer::control* const control_with_one_ref, element_type* const value) noexcept
+			: m_ctrl{ control_with_one_ref }
+			, m_value{ value }
+		{ }
 
 		/** Pointer to the control block or nullptr. May be nullptr if uncontrolled (aliasing an empty shared_ptr) or m_value is nullptr.
 		 */
@@ -1806,6 +1822,74 @@ namespace sh
 			return lhs.owner_before(rhs);
 		}
 	};
+
+	/**	A class like std::enable_shared_from_this that allows obtaining a wide_shared_ptr or wide_weak_ptr from a pointer or reference to a derived class that has such an owner.
+	 *	@note Derived type must be public in order for association to succeed.
+	 */
+	template <typename T>
+	class enable_shared_from_this : public pointer::control_from_this
+	{
+	public:
+		/**	Return a wide_shared_ptr that shares ownership with the other wide_shared_ptr & shared_ptr that refer to this.
+		 *	@throw std::bad_weak_ptr if this isn't owned by wide_shared_ptr or shared_ptr, or is part of an array.
+		 *	@return A wide_shared_ptr for this, as type T, that shares ownership with the other existing shared_ptrs.
+		 */
+		wide_shared_ptr<T> shared_from_this();
+		/**	Return a wide_shared_ptr that shares ownership with the other wide_shared_ptr & shared_ptr that refer to this.
+		 *	@throw std::bad_weak_ptr if this isn't owned by wide_shared_ptr or shared_ptr, or is part of an array.
+		 *	@return A wide_shared_ptr for this, as type const T, that shares ownership with the other existing shared_ptrs.
+		 */
+		wide_shared_ptr<const T> shared_from_this() const;
+		/**	Return a wide_weak_ptr that shares ownership with the other wide_weak_ptr & weak_ptr that refer to this.
+		 *	@return A wide_weak_ptr for this, as type T, that may lock to either a null or non-null wide_shared_ptr.
+		 */
+		wide_weak_ptr<T> weak_from_this() noexcept;
+		/**	Return a wide_weak_ptr that shares ownership with the other wide_weak_ptr & weak_ptr that refer to this.
+		 *	@return A wide_weak_ptr for this, as type const T, that may lock to either a null or non-null wide_shared_ptr.
+		 */
+		wide_weak_ptr<const T> weak_from_this() const noexcept;
+	};
+
+	template <typename T>
+	wide_shared_ptr<T> enable_shared_from_this<T>::shared_from_this()
+	{
+		if (m_ctrl == nullptr)
+		{
+			throw std::bad_weak_ptr{};
+		}
+		m_ctrl->shared_inc();
+		return wide_shared_ptr<T>{ m_ctrl, static_cast<T*>(this) };
+	}
+	template <typename T>
+	wide_shared_ptr<const T> enable_shared_from_this<T>::shared_from_this() const
+	{
+		if (m_ctrl == nullptr)
+		{
+			throw std::bad_weak_ptr{};
+		}
+		m_ctrl->shared_inc();
+		return wide_shared_ptr<const T>{ m_ctrl, static_cast<const T*>(this) };
+	}
+	template <typename T>
+	wide_weak_ptr<T> enable_shared_from_this<T>::weak_from_this() noexcept
+	{
+		if (m_ctrl == nullptr)
+		{
+			return wide_shared_ptr<T>{};
+		}
+		m_ctrl->weak_inc();
+		return wide_weak_ptr<T>{ m_ctrl, static_cast<T*>(this) };
+	}
+	template <typename T>
+	wide_weak_ptr<const T> enable_shared_from_this<T>::weak_from_this() const noexcept
+	{
+		if (m_ctrl == nullptr)
+		{
+			return wide_shared_ptr<const T>{};
+		}
+		m_ctrl->weak_inc();
+		return wide_weak_ptr<const T>{ m_ctrl, static_cast<const T*>(this) };
+	}
 
 } // namespace sh
 

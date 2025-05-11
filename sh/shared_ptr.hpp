@@ -102,6 +102,15 @@
 	#endif // !_MSC_VER
 #endif // !SH_POINTER_NO_UNIQUE_ADDRESS
 
+namespace sh
+{
+	template <typename T> class wide_shared_ptr;
+	template <typename T> class wide_weak_ptr;
+	template <typename T> class shared_ptr;
+	template <typename T> class weak_ptr;
+	template <typename T> class enable_shared_from_this;
+} // namespace sh
+
 namespace sh::pointer
 {
 	/**	The maximum alignment to be supported by sh::shared_ptr.
@@ -559,6 +568,48 @@ namespace sh::pointer
 		// no return
 	}
 
+	template <
+		typename T,
+		typename Alloc
+	>
+		requires (false == std::is_array_v<T>)
+	class value_convertible_to_control;
+
+	/**	Storage & base class for enable_shared_from_this.
+	 */
+	class control_from_this
+	{
+	protected:
+		/**	Default constructor that set the control block to nullptr.
+		 */
+		constexpr control_from_this() noexcept
+			: m_ctrl{ nullptr }
+		{ }
+		/**	Copy constructor that doesn't copy and instead sets the control block to nullptr.
+		 */
+		constexpr control_from_this(const control_from_this&) noexcept
+			: m_ctrl{ nullptr }
+		{ }
+		/**	Copy assignment operator that doesn't copy.
+		 *	@return A reference to this.
+		 */
+		constexpr control_from_this& operator=(const control_from_this&) noexcept
+		{
+			return *this;
+		}
+
+	private:
+		template <typename T> friend class ::sh::enable_shared_from_this;
+		template <typename T, typename Alloc>
+			requires (false == std::is_array_v<T>)
+		friend class value_convertible_to_control;
+
+		/**	Control block associated with a type that inherits from control_from_this, presumably via enable_shared_from_this.
+		 *	@note Is filled with non-nullptr value during value_convertible_to_control::allocate, which is called during make_shared. Direct construction (aliasing and similar) and many allocators (arrays of elements) will not initialize this value.
+		 */
+		control* m_ctrl;
+	};
+
 	/**	Allocate a control block associated with a value of type T using a given allocator.
 	 *	@tparam T The value type.
 	 *	@tparam Alloc The allocator type.
@@ -738,6 +789,14 @@ namespace sh::pointer
 					storage_allocator_traits::deallocate(storage_alloc, storage, storage_element_count);
 					throw;
 				}
+			}
+			using control_from_this_type = control_from_this;
+			// enable_shared_from_this is required to be public & is_convertible will honor that requirement (as opposed
+			// to is_base_of, which will return true followed by an error in the if constexpr block that follows.
+			if constexpr (std::is_convertible_v<element_type*, control_from_this_type*>)
+			{
+				auto* const control_from_value = static_cast<control_from_this_type*>(value);
+				control_from_value->m_ctrl = &storage->m_ctrl;
 			}
 #if SH_POINTER_DEBUG_SHARED_PTR
 			storage->m_ctrl.validate_set_origin(origin());
@@ -1111,11 +1170,6 @@ namespace sh::pointer
 
 namespace sh
 {
-	template <typename T> class wide_shared_ptr;
-	template <typename T> class wide_weak_ptr;
-	template <typename T> class shared_ptr;
-	template <typename T> class weak_ptr;
-
 	/**	A reference counting owner of allocated data similar to a more limited std::shared_ptr that is only a single pointer wide.
 	 */
 	template <typename T>
@@ -1401,6 +1455,9 @@ namespace sh
 			}
 		}
 
+		/**	Constructor for internal use that accepts a value associated with a convertible_control that has a shared_inc that this shared_ptr will assume.
+		 *	@param value_with_one_ref A value associated with a convertible_control with a shared_inc to assume.
+		 */
 		explicit shared_ptr(element_type* const value_with_one_ref) noexcept
 			: m_value{ value_with_one_ref }
 		{ }
