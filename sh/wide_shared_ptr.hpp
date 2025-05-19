@@ -714,11 +714,13 @@ namespace sh
 			SH_POINTER_ASSERT(m_value != nullptr, "Dereferencing nullptr wide_shared_ptr in operator[].");
 			if constexpr (std::is_array_v<T>)
 			{
+#if SH_POINTER_DEBUG_SHARED_PTR
 				SH_POINTER_ASSERT(m_ctrl == nullptr
 					|| m_ctrl->get_operations().m_get_element_count == nullptr
 					|| std::size_t(idx) < m_ctrl->get_operations().m_get_element_count(m_ctrl)
 					, "Index given to wide_shared_ptr::operator[] is out of bounds."
 				);
+#endif // SH_POINTER_DEBUG_SHARED_PTR
 			}
 			else
 			{
@@ -917,6 +919,7 @@ namespace sh
 		template <typename U> friend class shared_ptr;
 		template <typename U> friend class weak_ptr;
 		template <typename U> friend class enable_shared_from_this;
+		friend struct std::atomic<wide_shared_ptr<T>>;
 
 		template <typename U, typename Alloc, typename... Args>
 			requires (false == std::is_array_v<U>
@@ -1021,8 +1024,24 @@ namespace sh
 			: m_ctrl{ std::exchange(other.m_ctrl, nullptr) }
 			, m_value{ std::exchange(other.m_value, nullptr) }
 		{ }
+		wide_weak_ptr(const weak_ptr<T>& other) noexcept
+			: m_ctrl{ pointer::convert_value_to_control(other.m_value) }
+			, m_value{ other.m_value }
+		{
+			increment(m_ctrl);
+		}
+		wide_weak_ptr(weak_ptr<T>&& other) noexcept
+			: m_ctrl{ pointer::convert_value_to_control(other.m_value, nullptr) }
+			, m_value{ std::exchange(other.m_value, nullptr) }
+		{ }
 		wide_weak_ptr(const wide_shared_ptr<T>& other) noexcept
 			: m_ctrl{ other.m_ctrl }
+			, m_value{ other.m_value }
+		{
+			increment(m_ctrl);
+		}
+		wide_weak_ptr(const shared_ptr<T>& other) noexcept
+			: m_ctrl{ pointer::convert_value_to_control(other.m_value) }
 			, m_value{ other.m_value }
 		{
 			increment(m_ctrl);
@@ -1049,10 +1068,37 @@ namespace sh
 			m_value = value;
 			return *this;
 		}
+		wide_weak_ptr& operator=(const weak_ptr<T>& other) noexcept
+		{
+			increment(other.m_ctrl);
+			decrement(m_ctrl);
+			m_ctrl = other.m_ctrl;
+			m_value = pointer::convert_control_to_value<element_type*>(m_ctrl);
+			return *this;
+		}
+		wide_weak_ptr& operator=(weak_ptr<T>&& other) noexcept
+		{
+			pointer::control* const ctrl = std::exchange(other.m_ctrl, nullptr);
+			element_type* const value = pointer::convert_control_to_value<element_type*>(ctrl);
+			this->decrement(m_ctrl);
+			m_ctrl = ctrl;
+			m_value = value;
+			return *this;
+		}
 		wide_weak_ptr& operator=(const wide_shared_ptr<T>& other) noexcept
 		{
 			pointer::control* const ctrl = other.m_ctrl;
 			element_type* const value = other.m_value;
+			increment(ctrl);
+			decrement(m_ctrl);
+			m_ctrl = ctrl;
+			m_value = value;
+			return *this;
+		}
+		wide_weak_ptr& operator=(const shared_ptr<T>& other) noexcept
+		{
+			element_type* const value = other.m_value;
+			pointer::control* const ctrl = pointer::convert_value_to_control(value);
 			increment(ctrl);
 			decrement(m_ctrl);
 			m_ctrl = ctrl;
@@ -1245,12 +1291,35 @@ namespace sh
 			return *this;
 		}
 
+		// implicit conversion from shared_ptr
+		template <typename U>
+			requires std::is_convertible_v<U*, T*>
+		wide_weak_ptr(const shared_ptr<U>& other) noexcept
+			: m_ctrl{ pointer::convert_value_to_control(other.m_value) }
+			, m_value{ other.m_value }
+		{
+			increment(m_ctrl);
+		}
+		template <typename U>
+			requires std::is_convertible_v<U*, T*>
+		wide_weak_ptr& operator=(const shared_ptr<U>& other) noexcept
+		{
+			element_type* const value = other.m_value;
+			pointer::control* const ctrl = pointer::convert_value_to_control(value);
+			increment(ctrl);
+			decrement(m_ctrl);
+			m_ctrl = ctrl;
+			m_value = value;
+			return *this;
+		}
+
 	private:
 		template <typename U> friend class shared_ptr;
 		template <typename U> friend class weak_ptr;
 		template <typename U> friend class wide_shared_ptr;
 		template <typename U> friend class wide_weak_ptr;
 		template <typename U> friend class enable_shared_from_this;
+		friend struct std::atomic<wide_weak_ptr<T>>;
 
 		static void increment(pointer::control* const ctrl) noexcept
 		{

@@ -22,8 +22,12 @@ To use sh::shared_ptr and sh::weak_ptr requires:
 	* sh/pointer_traits.hpp
 	* sh/pointer.hpp
 	* sh/shared_ptr.hpp
-Adding the wide varieties sh::wide_shared_ptr and sh::wide_weak_ptr:
+To add the wide varieties sh::wide_shared_ptr and sh::wide_weak_ptr:
 	* sh/wide_shared_ptr.hpp
 Including wide_shared_ptr also defines sh::enable_shared_from_this.
+
+Specializations of std::atomic for the above pointer types are defined in:
+	* sh/atomic_shared_ptr.hpp
+	* sh/atomic_wide_shared_ptr.hpp
 
 I hope this is useful or at least interesting!

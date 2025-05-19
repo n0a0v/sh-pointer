@@ -1,4 +1,6 @@
 set(TESTS_SRC
+	test_atomic_shared_ptr.cpp
+	test_atomic_wide_shared_ptr.cpp
 	test_enable_shared_from_this.cpp
 	test_never_null.cpp
 	test_not_null.cpp

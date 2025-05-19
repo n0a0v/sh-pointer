@@ -232,6 +232,15 @@ namespace sh::pointer
 				// Acquire if last reference control + value reference.
 				std::atomic_thread_fence(std::memory_order_acquire);
 
+#if defined(__has_feature)
+#if __has_feature(thread_sanitizer)
+				// TSan doesn't know what to do with atomic_thread_fence, so
+				// hold its hand a bit to let it know m_counter has been
+				// acquired:
+				__tsan_acquire(&m_counter);
+#endif // __has_feature
+#endif // __has_feature(thread_sanitizer)
+
 				// If this was the last control reference.
 				get_operations().m_destruct(this);
 				get_operations().m_deallocate(this);
@@ -240,6 +249,15 @@ namespace sh::pointer
 			{
 				// Acquire if last reference value reference.
 				std::atomic_thread_fence(std::memory_order_acquire);
+
+#if defined(__has_feature)
+#if __has_feature(thread_sanitizer)
+				// TSan doesn't know what to do with atomic_thread_fence, so
+				// hold its hand a bit to let it know m_counter has been
+				// acquired:
+				__tsan_acquire(&m_counter);
+#endif // __has_feature
+#endif // __has_feature(thread_sanitizer)
 
 				// If this was only the last value reference.
 				get_operations().m_destruct(this);
@@ -1244,6 +1262,7 @@ namespace sh
 			SH_POINTER_ASSERT(idx >= 0, "Negative index given to shared_ptr::operator[] has undefined results.");
 			if constexpr (std::is_array_v<T>)
 			{
+#if SH_POINTER_DEBUG_SHARED_PTR
 				SH_POINTER_ASSERT(
 					m_value != nullptr
 					&& (pointer::convert_value_to_control(*m_value).get_operations().m_get_element_count == nullptr
@@ -1252,6 +1271,9 @@ namespace sh
 						))
 					, "Index given to shared_ptr::operator[] is out of bounds."
 				);
+#else // !SH_POINTER_DEBUG_SHARED_PTR
+				SH_POINTER_ASSERT(m_value != nullptr, "Dereferencing nullptr shared_ptr in operator[].");
+#endif // !SH_POINTER_DEBUG_SHARED_PTR
 			}
 			else
 			{
@@ -1390,8 +1412,10 @@ namespace sh
 
 	private:
 		template <typename U> friend class wide_shared_ptr;
+		template <typename U> friend class wide_weak_ptr;
 		template <typename U> friend class shared_ptr;
 		template <typename U> friend class weak_ptr;
+		friend struct std::atomic<sh::shared_ptr<T>>;
 
 		template <typename U, typename Alloc, typename... Args>
 			requires (false == std::is_array_v<U>
@@ -1627,6 +1651,7 @@ namespace sh
 		template <typename U> friend class wide_weak_ptr;
 		template <typename U> friend class shared_ptr;
 		template <typename U> friend class weak_ptr;
+		friend struct std::atomic<sh::weak_ptr<T>>;
 
 		static void increment(pointer::convertible_control* const ctrl) noexcept
 		{
@@ -1642,6 +1667,13 @@ namespace sh
 				ctrl->weak_dec();
 			}
 		}
+
+		/**	Constructor for internal use that accepts a convertible_control that has a weak_inc that this weak_ptr will assume.
+		 *	@param ctrl_with_one_ref A convertible_control with a weak_inc to assume.
+		 */
+		explicit weak_ptr(pointer::convertible_control* const ctrl_with_one_ref) noexcept
+			: m_ctrl{ ctrl_with_one_ref }
+		{ }
 
 		pointer::convertible_control* m_ctrl;
 	};
@@ -1664,10 +1696,8 @@ namespace sh
 			&& alignof(T) <= pointer::max_alignment)
 	shared_ptr<T> allocate_shared(const Alloc& alloc, Args&&... args)
 	{
-		using origin_type = pointer::value_convertible_to_control<
-			T,
-			Alloc
-		>;
+		using element_type = std::remove_const_t<T>;
+		using origin_type = pointer::value_convertible_to_control<element_type, Alloc>;
 		return shared_ptr<T>{
 			origin_type::template allocate<pointer::construct_method::value_ctor>(
 				alloc,
@@ -1690,10 +1720,8 @@ namespace sh
 			&& alignof(T) <= pointer::max_alignment)
 	shared_ptr<T> allocate_shared_for_overwrite(const Alloc& alloc)
 	{
-		using origin_type = pointer::value_convertible_to_control<
-			T,
-			Alloc
-		>;
+		using element_type = std::remove_const_t<T>;
+		using origin_type = pointer::value_convertible_to_control<element_type, Alloc>;
 		return shared_ptr<T>{
 			origin_type::template allocate<pointer::construct_method::default_ctor>(
 				alloc
@@ -1893,7 +1921,10 @@ namespace sh
 			&& alignof(T) <= pointer::max_alignment)
 	shared_ptr<T> make_shared(Args&&... args)
 	{
-		return sh::allocate_shared<T>(pointer::default_allocator<T>{}, std::forward<Args>(args)...);
+		return sh::allocate_shared<T>(
+			pointer::default_allocator<std::remove_const_t<T>>{},
+			std::forward<Args>(args)...
+		);
 	}
 	/**	Constructs a sh::shared_ptr to own a (default initialized) element T.
 	 *	@throw May throw std::bad_alloc or other exceptions from T's constructor.
@@ -1905,7 +1936,8 @@ namespace sh
 			&& alignof(T) <= pointer::max_alignment)
 	shared_ptr<T> make_shared_for_overwrite()
 	{
-		return sh::allocate_shared_for_overwrite<T>(pointer::default_allocator<T>{});
+		using element_type = std::remove_const_t<T>;
+		return sh::allocate_shared_for_overwrite<T>(pointer::default_allocator<element_type>{});
 	}
 
 	/**	Constructs a sh::shared_ptr to own an array of \p element_count (value initialized) elements of T.
@@ -1920,7 +1952,7 @@ namespace sh
 			&& alignof(T) <= pointer::max_alignment)
 	shared_ptr<T> make_shared(const std::size_t element_count)
 	{
-		using element_type = std::remove_extent_t<T>;
+		using element_type = std::remove_const_t<std::remove_extent_t<T>>;
 		return sh::allocate_shared<T>(pointer::default_allocator<element_type>{}, element_count);
 	}
 	/**	Constructs a sh::shared_ptr to own an array of \p element_count (value initialized) elements of T.
@@ -1936,7 +1968,7 @@ namespace sh
 			&& alignof(T) <= pointer::max_alignment)
 	shared_ptr<T> make_shared(const std::size_t element_count, const std::remove_extent_t<T>& init_value)
 	{
-		using element_type = std::remove_extent_t<T>;
+		using element_type = std::remove_const_t<std::remove_extent_t<T>>;
 		return sh::allocate_shared<T>(pointer::default_allocator<element_type>{}, element_count, init_value);
 	}
 	/**	Constructs a sh::shared_ptr to own an array of (value initialized) elements of T.
@@ -1950,7 +1982,7 @@ namespace sh
 			&& alignof(T) <= pointer::max_alignment)
 	shared_ptr<T> make_shared()
 	{
-		using element_type = std::remove_extent_t<T>;
+		using element_type = std::remove_const_t<std::remove_extent_t<T>>;
 		return sh::allocate_shared<T>(pointer::default_allocator<element_type>{});
 	}
 	/**	Constructs a sh::shared_ptr to own an array of (value initialized) elements of T.
@@ -1965,7 +1997,7 @@ namespace sh
 			&& alignof(T) <= pointer::max_alignment)
 	shared_ptr<T> make_shared(const std::remove_extent_t<T>& init_value)
 	{
-		using element_type = std::remove_extent_t<T>;
+		using element_type = std::remove_const_t<std::remove_extent_t<T>>;
 		return sh::allocate_shared<T>(pointer::default_allocator<element_type>{}, init_value);
 	}
 
@@ -1981,7 +2013,7 @@ namespace sh
 			&& alignof(T) <= pointer::max_alignment)
 	shared_ptr<T> make_shared_for_overwrite(const std::size_t element_count)
 	{
-		using element_type = std::remove_extent_t<T>;
+		using element_type = std::remove_const_t<std::remove_extent_t<T>>;
 		return sh::allocate_shared_for_overwrite<T>(pointer::default_allocator<element_type>{}, element_count);
 	}
 	/**	Constructs a sh::shared_ptr to own an array of (default initialized) elements of T.
@@ -1995,7 +2027,7 @@ namespace sh
 			&& alignof(T) <= pointer::max_alignment)
 	shared_ptr<T> make_shared_for_overwrite()
 	{
-		using element_type = std::remove_extent_t<T>;
+		using element_type = std::remove_const_t<std::remove_extent_t<T>>;
 		return sh::allocate_shared_for_overwrite<T>(pointer::default_allocator<element_type>{});
 	}
 
